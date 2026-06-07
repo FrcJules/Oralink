@@ -41,8 +41,17 @@ export default function App() {
 
   return (
     <main className="space-y-4">
-      <header className="flex items-center gap-2 py-2">
-        <span className="text-lg font-semibold lb-text">📡 Oralink — Livebox</span>
+      <header className="flex items-center gap-2.5 py-2">
+        <span
+          className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-bold"
+          style={{ background: "var(--lb-brand)", color: "var(--lb-brand-contrast)" }}
+        >
+          O
+        </span>
+        <span className="text-lg font-semibold">
+          <span className="lb-text">Oralink </span>
+          <span style={{ color: "var(--lb-brand)" }}>Livebox</span>
+        </span>
       </header>
 
       <Tabs defaultValue={TABS[0].id}>

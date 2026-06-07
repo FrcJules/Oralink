@@ -80,7 +80,7 @@ export function AdvancedTab() {
                     <li key={r.id} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
                       <span>{r.description ?? r.id}</span>
                       <span className="flex gap-2">
-                        <button onClick={() => handleUpnpToggle(r.id, !r.enabled)} className="text-xs text-blue-600 hover:underline">
+                        <button onClick={() => handleUpnpToggle(r.id, !r.enabled)} className="lb-link text-xs hover:underline">
                           {r.enabled ? "Désactiver" : "Activer"}
                         </button>
                         <button onClick={() => handleUpnpDelete(r.id)} className="text-xs text-red-600 hover:underline">

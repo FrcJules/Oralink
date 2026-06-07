@@ -7,6 +7,18 @@
    l'utilisateur (clair, sombre, ou thème personnalisé) sans bascule maison.
    Les valeurs après la virgule sont des secours si HA n'a pas posé la
    variable (ex. ancienne version du frontend). */
+/* Couleur de marque "Oralink" — l'orange Orange, repris de la DA de
+   l'interface d'admin Livebox (logo, accents, liens actifs). Volontairement
+   fixe (pas une variable de thème HA) : c'est l'identité visuelle propre au
+   panel, qui doit rester reconnaissable quel que soit le thème HA actif —
+   un peu comme le logo Orange ne change pas de couleur selon le thème du
+   site qui l'affiche. Les surfaces/textes, eux, restent pilotés par les
+   variables HA (cf. plus bas) pour s'adapter au clair/sombre. */
+:host {
+  --lb-brand: #ff7900;
+  --lb-brand-contrast: #ffffff;
+}
+
 :host, #root {
   background: var(--primary-background-color, #f8fafc);
   color: var(--primary-text-color, #0f172a);
@@ -56,17 +68,25 @@
     border-color: var(--divider-color, #e2e8f0);
   }
 
-  /* Bouton principal (suit la couleur d'accent du thème HA) */
+  /* Bouton principal — couleur de marque Oralink (orange Orange) */
   .lb-btn-primary {
     @apply rounded-md px-3 py-1.5 text-sm font-medium transition-colors;
-    background: var(--primary-color, #0f172a);
-    color: var(--text-primary-color, #fff);
+    background: var(--lb-brand);
+    color: var(--lb-brand-contrast);
   }
   .lb-btn-primary:hover {
-    filter: brightness(1.1);
+    filter: brightness(0.92);
   }
   .lb-btn-primary:disabled {
     opacity: 0.5;
+  }
+
+  /* Lien / action discrète en couleur de marque */
+  .lb-link {
+    color: var(--lb-brand);
+  }
+  .lb-link:hover {
+    text-decoration: underline;
   }
 
   /* Bouton secondaire / discret */

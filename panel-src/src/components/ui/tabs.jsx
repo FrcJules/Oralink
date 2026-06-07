@@ -20,8 +20,8 @@ export function TabsTrigger({ className, ...props }) {
     <TabsPrimitive.Trigger
       className={cn(
         "inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-        "data-[state=active]:bg-[var(--card-background-color)] data-[state=active]:lb-text data-[state=active]:shadow-sm",
-        "hover:lb-text",
+        "data-[state=active]:bg-[var(--card-background-color)] data-[state=active]:text-[var(--lb-brand)] data-[state=active]:shadow-sm",
+        "hover:text-[var(--primary-text-color)]",
         className,
       )}
       {...props}
