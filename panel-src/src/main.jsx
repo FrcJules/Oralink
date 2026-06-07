@@ -39,9 +39,17 @@ class LiveboxPanel extends HTMLElement {
     }
     const shadow = this.attachShadow({ mode: "open" });
 
+    // On réutilise la query string (`?v=...`) de l'URL avec laquelle ce module
+    // a été chargé pour casser le cache du CSS en même temps que celui du JS —
+    // sinon le navigateur garde une vieille version du CSS en cache alors que
+    // le bundle JS, lui, se met à jour (URL différente à chaque build).
+    const cacheBuster = import.meta.url.split("?")[1];
+    const cssUrl = "/livebox_panel/react-panel/livebox-panel-react.css" +
+      (cacheBuster ? `?${cacheBuster}` : "");
+
     const stylesheet = document.createElement("link");
     stylesheet.rel = "stylesheet";
-    stylesheet.href = "/livebox_panel/react-panel/livebox-panel-react.css";
+    stylesheet.href = cssUrl;
     shadow.appendChild(stylesheet);
 
     this._portal = document.createElement("div");

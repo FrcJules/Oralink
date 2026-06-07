@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext } from "react";
 
 const HassContext = createContext(null);
 
@@ -14,8 +14,15 @@ export function useHass() {
 /** Raccourci pour appeler une commande WebSocket exposée par panel.py (ws_get_*, ws_*_set...). */
 export function useWsCommand() {
   const hass = useHass();
-  return (message) => {
-    if (!hass) return Promise.reject(new Error("hass not ready"));
-    return hass.callWS(message);
-  };
+  // Identité stable entre les rendus : sans `useCallback`, chaque rendu
+  // recréait cette fonction, ce qui invalidait le `useCallback`/`useEffect`
+  // de `useWsData` et provoquait une boucle infinie d'appels WS et de
+  // re-rendus (jusqu'au crash de l'onglet par épuisement mémoire).
+  return useCallback(
+    (message) => {
+      if (!hass) return Promise.reject(new Error("hass not ready"));
+      return hass.callWS(message);
+    },
+    [hass],
+  );
 }
