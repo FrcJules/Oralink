@@ -10,7 +10,7 @@ import { Card } from "../components/card.jsx";
 export function ComingSoonTab({ title, description }) {
   return (
     <Card title={title}>
-      <p className="text-sm text-slate-500">{description} — à venir (voir CLAUDE.md, section feuille de route).</p>
+      <p className="text-sm lb-text-muted">{description} — à venir (voir CLAUDE.md, section feuille de route).</p>
     </Card>
   );
 }

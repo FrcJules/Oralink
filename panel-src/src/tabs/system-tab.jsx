@@ -19,12 +19,12 @@ function LedSlider({ label, led, value, onSaved }) {
   };
 
   if (value == null) {
-    return <p className="text-sm text-slate-500">{label} : non disponible sur ce modèle.</p>;
+    return <p className="text-sm lb-text-muted">{label} : non disponible sur ce modèle.</p>;
   }
 
   return (
     <div className="flex items-center gap-3 py-1 text-sm">
-      <span className="w-32 text-slate-500">{label}</span>
+      <span className="w-32 lb-text-muted">{label}</span>
       <input
         type="range"
         min={0}
@@ -36,22 +36,22 @@ function LedSlider({ label, led, value, onSaved }) {
         className="flex-1"
         disabled={saving}
       />
-      <span className="w-10 text-right font-medium text-slate-900">{level}%</span>
+      <span className="w-10 text-right font-medium lb-text">{level}%</span>
     </div>
   );
 }
 
 function ToggleButton({ label, value, onToggle }) {
   if (value == null) {
-    return <p className="text-sm text-slate-500">{label} : non disponible sur ce modèle.</p>;
+    return <p className="text-sm lb-text-muted">{label} : non disponible sur ce modèle.</p>;
   }
   return (
     <div className="flex items-center justify-between py-1 text-sm">
-      <span className="text-slate-500">{label}</span>
+      <span className="lb-text-muted">{label}</span>
       <button
         onClick={() => onToggle(!value)}
         className={`rounded-md px-3 py-1 text-xs font-medium ${
-          value ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"
+          value ? "bg-emerald-100 text-emerald-700" : "bg-[var(--secondary-background-color)] lb-text-muted"
         }`}
       >
         {value ? "Activé" : "Désactivé"}
@@ -120,13 +120,13 @@ export function SystemTab() {
       <Card title="Sauvegarde et restauration de la configuration">
         {backup && (
           <div className="space-y-2">
-            <div className="flex justify-between border-b border-slate-100 py-1 text-sm">
-              <span className="text-slate-500">Statut</span>
-              <span className="font-medium text-slate-900">{backup.status || "—"}</span>
+            <div className="flex justify-between border-b lb-border py-1 text-sm">
+              <span className="lb-text-muted">Statut</span>
+              <span className="font-medium lb-text">{backup.status || "—"}</span>
             </div>
-            <div className="flex justify-between border-b border-slate-100 py-1 text-sm">
-              <span className="text-slate-500">Dernière sauvegarde</span>
-              <span className="font-medium text-slate-900">{backup.last_backup || "—"}</span>
+            <div className="flex justify-between border-b lb-border py-1 text-sm">
+              <span className="lb-text-muted">Dernière sauvegarde</span>
+              <span className="font-medium lb-text">{backup.last_backup || "—"}</span>
             </div>
             <ToggleButton
               label="Sauvegarde automatique"
@@ -136,7 +136,7 @@ export function SystemTab() {
             <div className="flex gap-2 pt-2">
               <button
                 onClick={handleBackupNow}
-                className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+                className="lb-btn-primary"
               >
                 Sauvegarder maintenant
               </button>
@@ -147,7 +147,7 @@ export function SystemTab() {
                 Restaurer la dernière sauvegarde
               </button>
             </div>
-            {actionMsg && <p className="text-xs text-slate-500">{actionMsg}</p>}
+            {actionMsg && <p className="text-xs lb-text-muted">{actionMsg}</p>}
           </div>
         )}
       </Card>

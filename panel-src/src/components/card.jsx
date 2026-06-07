@@ -12,7 +12,7 @@ export function Card({ title, actions, children }) {
 
 /** Affiche un message de chargement / erreur, ou rien si tout va bien. */
 export function StateBox({ loading, error }) {
-  if (loading) return <p className="text-sm text-slate-500">Chargement…</p>;
-  if (error) return <p className="text-sm text-red-600">Erreur : {String(error.message ?? error)}</p>;
+  if (loading) return <p className="lb-text-muted text-sm">Chargement…</p>;
+  if (error) return <p className="lb-text-error text-sm">Erreur : {String(error.message ?? error)}</p>;
   return null;
 }

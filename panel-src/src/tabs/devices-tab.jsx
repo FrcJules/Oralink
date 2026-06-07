@@ -8,7 +8,7 @@ export function DevicesTab() {
     <Card
       title={`Appareils${data ? ` (${data.length})` : ""}`}
       actions={
-        <button onClick={refresh} className="rounded-md border border-slate-300 px-2.5 py-1 text-xs hover:bg-slate-50">
+        <button onClick={refresh} className="rounded-md border lb-border px-2.5 py-1 text-xs hover:bg-[var(--secondary-background-color)]">
           ↻ Rafraîchir
         </button>
       }
@@ -17,7 +17,7 @@ export function DevicesTab() {
       {data && (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="text-xs uppercase text-slate-500">
+            <thead className="text-xs uppercase lb-text-muted">
               <tr>
                 <th className="py-1.5 pr-3">Nom</th>
                 <th className="py-1.5 pr-3">IP</th>
@@ -29,16 +29,16 @@ export function DevicesTab() {
             </thead>
             <tbody>
               {data.map((d) => (
-                <tr key={d.mac} className="border-t border-slate-100">
+                <tr key={d.mac} className="border-t lb-border">
                   <td className="py-1.5 pr-3 font-medium">
-                    <span className={`mr-1.5 inline-block size-2 rounded-full ${d.active ? "bg-emerald-500" : "bg-slate-300"}`} />
+                    <span className={`mr-1.5 inline-block size-2 rounded-full ${d.active ? "bg-emerald-500" : "bg-[var(--disabled-text-color)]"}`} />
                     {d.name}
                   </td>
-                  <td className="py-1.5 pr-3 text-slate-600">{d.ip || "—"}</td>
-                  <td className="py-1.5 pr-3 text-slate-600">{d.type || "—"}</td>
-                  <td className="py-1.5 pr-3 text-slate-600">{d.interface || d.band || "—"}</td>
-                  <td className="py-1.5 pr-3 text-slate-600">{d.signal ?? "—"}</td>
-                  <td className="py-1.5 pr-3 text-slate-600">
+                  <td className="py-1.5 pr-3 lb-text-muted">{d.ip || "—"}</td>
+                  <td className="py-1.5 pr-3 lb-text-muted">{d.type || "—"}</td>
+                  <td className="py-1.5 pr-3 lb-text-muted">{d.interface || d.band || "—"}</td>
+                  <td className="py-1.5 pr-3 lb-text-muted">{d.signal ?? "—"}</td>
+                  <td className="py-1.5 pr-3 lb-text-muted">
                     {d.rate_rx ?? "—"} / {d.rate_tx ?? "—"}
                   </td>
                 </tr>

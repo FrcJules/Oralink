@@ -4,9 +4,9 @@ import { Card, StateBox } from "../components/card.jsx";
 
 function Row({ label, value }) {
   return (
-    <div className="flex justify-between border-b border-slate-100 py-1 text-sm last:border-0">
-      <span className="text-slate-500">{label}</span>
-      <span className="font-medium text-slate-900">{value ?? "—"}</span>
+    <div className="flex justify-between border-b lb-border py-1 text-sm last:border-0">
+      <span className="lb-text-muted">{label}</span>
+      <span className="font-medium lb-text">{value ?? "—"}</span>
     </div>
   );
 }
@@ -57,12 +57,12 @@ export function AdvancedTab() {
       <Card title="DynDNS">
         {ddns && (
           ddns.hosts.length === 0
-            ? <p className="text-sm text-slate-500">Aucun DynDNS configuré.</p>
+            ? <p className="text-sm lb-text-muted">Aucun DynDNS configuré.</p>
             : <ul className="space-y-1 text-sm">
                 {ddns.hosts.map((h) => (
-                  <li key={h.hostname} className="flex justify-between border-b border-slate-100 py-1 last:border-0">
+                  <li key={h.hostname} className="flex justify-between border-b lb-border py-1 last:border-0">
                     <span className="font-medium">{h.hostname}</span>
-                    <span className="text-slate-500">{h.service} · {h.status}</span>
+                    <span className="lb-text-muted">{h.service} · {h.status}</span>
                   </li>
                 ))}
               </ul>
@@ -74,10 +74,10 @@ export function AdvancedTab() {
           <>
             <Row label="Activé" value={upnp.enabled ? "Oui" : "Non"} />
             {upnp.rules.length === 0
-              ? <p className="mt-2 text-sm text-slate-500">Aucune règle UPnP.</p>
+              ? <p className="mt-2 text-sm lb-text-muted">Aucune règle UPnP.</p>
               : <ul className="mt-2 space-y-1 text-sm">
                   {upnp.rules.map((r) => (
-                    <li key={r.id} className="flex items-center justify-between border-b border-slate-100 py-1 last:border-0">
+                    <li key={r.id} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
                       <span>{r.description ?? r.id}</span>
                       <span className="flex gap-2">
                         <button onClick={() => handleUpnpToggle(r.id, !r.enabled)} className="text-xs text-blue-600 hover:underline">
@@ -97,12 +97,12 @@ export function AdvancedTab() {
       <Card title="Historique des redémarrages">
         {rebootHistory && (
           rebootHistory.length === 0
-            ? <p className="text-sm text-slate-500">Aucun historique disponible.</p>
+            ? <p className="text-sm lb-text-muted">Aucun historique disponible.</p>
             : <ul className="space-y-1 text-sm">
                 {rebootHistory.map((entry, i) => (
-                  <li key={i} className="flex justify-between border-b border-slate-100 py-1 last:border-0">
+                  <li key={i} className="flex justify-between border-b lb-border py-1 last:border-0">
                     <span>{entry.date ?? entry.Date ?? "—"}</span>
-                    <span className="text-slate-500">{entry.cause ?? entry.Cause ?? entry.reason ?? "—"}</span>
+                    <span className="lb-text-muted">{entry.cause ?? entry.Cause ?? entry.reason ?? "—"}</span>
                   </li>
                 ))}
               </ul>

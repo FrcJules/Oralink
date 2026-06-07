@@ -1,32 +1,89 @@
 @import "tailwindcss";
 
-/* Le panel s'affiche dans un <iframe>/élément custom posé par Home Assistant :
-   pas de thème global, on part d'un fond neutre et de cartes "lb-card"
-   réutilisées par tous les onglets (cf. www/tabs/topology.js pour la réf.). */
-body {
-  margin: 0;
-  background: #f8fafc;
-  color: #0f172a;
-  font: 16px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+/* Le panel s'affiche dans un Shadow DOM posé par Home Assistant. Les variables
+   CSS de HA (--primary-text-color, --card-background-color...) traversent les
+   frontières du Shadow DOM par héritage : on s'appuie dessus plutôt que de
+   coder des couleurs en dur, pour suivre automatiquement le thème actif de
+   l'utilisateur (clair, sombre, ou thème personnalisé) sans bascule maison.
+   Les valeurs après la virgule sont des secours si HA n'a pas posé la
+   variable (ex. ancienne version du frontend). */
+:host, #root {
+  background: var(--primary-background-color, #f8fafc);
+  color: var(--primary-text-color, #0f172a);
 }
 
 #root {
   padding: 1.25rem;
   max-width: 1280px;
   margin: 0 auto;
+  font: 14px/1.5 var(--paper-font-body1_-_font-family, system-ui, "Segoe UI", Roboto, sans-serif);
 }
 
 @layer components {
   .lb-card {
-    @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+    @apply rounded-xl border shadow-sm;
+    background: var(--card-background-color, var(--primary-background-color, #fff));
+    border-color: var(--divider-color, #e2e8f0);
   }
   .lb-card-header {
-    @apply flex items-center gap-2 border-b border-slate-200 px-4 py-3;
+    @apply flex items-center gap-2 px-4 py-3;
+    border-bottom: 1px solid var(--divider-color, #e2e8f0);
   }
   .lb-card-title {
-    @apply text-sm font-semibold text-slate-900;
+    @apply text-sm font-semibold;
+    color: var(--primary-text-color, #0f172a);
   }
   .lb-card-body {
     @apply p-4;
+  }
+
+  /* Texte */
+  .lb-text {
+    color: var(--primary-text-color, #0f172a);
+  }
+  .lb-text-muted {
+    color: var(--secondary-text-color, #64748b);
+  }
+  .lb-text-error {
+    color: var(--error-color, #dc2626);
+  }
+  .lb-text-success {
+    color: var(--success-color, #16a34a);
+  }
+
+  /* Séparateurs */
+  .lb-border {
+    border-color: var(--divider-color, #e2e8f0);
+  }
+
+  /* Bouton principal (suit la couleur d'accent du thème HA) */
+  .lb-btn-primary {
+    @apply rounded-md px-3 py-1.5 text-sm font-medium transition-colors;
+    background: var(--primary-color, #0f172a);
+    color: var(--text-primary-color, #fff);
+  }
+  .lb-btn-primary:hover {
+    filter: brightness(1.1);
+  }
+  .lb-btn-primary:disabled {
+    opacity: 0.5;
+  }
+
+  /* Bouton secondaire / discret */
+  .lb-btn-outline {
+    @apply rounded-md border px-3 py-1.5 text-sm font-medium transition-colors;
+    border-color: var(--divider-color, #cbd5e1);
+    color: var(--secondary-text-color, #475569);
+  }
+  .lb-btn-outline:hover {
+    background: var(--secondary-background-color, #f8fafc);
+  }
+
+  /* Champs de formulaire */
+  .lb-input {
+    @apply rounded-md border px-2 py-1 text-sm;
+    border-color: var(--divider-color, #cbd5e1);
+    background: var(--card-background-color, #fff);
+    color: var(--primary-text-color, #0f172a);
   }
 }

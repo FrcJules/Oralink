@@ -2,10 +2,10 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 function LeaseTable({ leases, empty }) {
-  if (!leases?.length) return <p className="text-sm text-slate-500">{empty}</p>;
+  if (!leases?.length) return <p className="text-sm lb-text-muted">{empty}</p>;
   return (
     <table className="w-full text-left text-sm">
-      <thead className="text-xs uppercase text-slate-500">
+      <thead className="text-xs uppercase lb-text-muted">
         <tr>
           <th className="py-1.5 pr-3">Nom</th>
           <th className="py-1.5 pr-3">IP</th>
@@ -14,10 +14,10 @@ function LeaseTable({ leases, empty }) {
       </thead>
       <tbody>
         {leases.map((l) => (
-          <tr key={l.mac ?? l.MACAddress} className="border-t border-slate-100">
+          <tr key={l.mac ?? l.MACAddress} className="border-t lb-border">
             <td className="py-1.5 pr-3 font-medium">{l.name ?? l.Name ?? l.hostname ?? "—"}</td>
-            <td className="py-1.5 pr-3 text-slate-600">{l.ip ?? l.IPAddress ?? "—"}</td>
-            <td className="py-1.5 pr-3 font-mono text-xs text-slate-600">{l.mac ?? l.MACAddress ?? "—"}</td>
+            <td className="py-1.5 pr-3 lb-text-muted">{l.ip ?? l.IPAddress ?? "—"}</td>
+            <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{l.mac ?? l.MACAddress ?? "—"}</td>
           </tr>
         ))}
       </tbody>

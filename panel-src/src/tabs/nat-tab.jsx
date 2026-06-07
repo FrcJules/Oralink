@@ -17,10 +17,10 @@ export function NatTab() {
       {data && (
         <>
           {data.length === 0 ? (
-            <p className="text-sm text-slate-500">Aucune règle NAT configurée.</p>
+            <p className="text-sm lb-text-muted">Aucune règle NAT configurée.</p>
           ) : (
             <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase text-slate-500">
+              <thead className="text-xs uppercase lb-text-muted">
                 <tr>
                   <th className="py-1.5 pr-3">Description</th>
                   <th className="py-1.5 pr-3">IP destination</th>
@@ -32,12 +32,12 @@ export function NatTab() {
               </thead>
               <tbody>
                 {data.map((rule) => (
-                  <tr key={rule.id} className="border-t border-slate-100">
+                  <tr key={rule.id} className="border-t lb-border">
                     <td className="py-1.5 pr-3 font-medium">{rule.description ?? rule.Description ?? "—"}</td>
-                    <td className="py-1.5 pr-3 text-slate-600">{rule.destination_ip ?? rule.DestinationIPAddress ?? "—"}</td>
-                    <td className="py-1.5 pr-3 text-slate-600">{rule.external_port ?? rule.ExternalPort ?? "—"}</td>
-                    <td className="py-1.5 pr-3 text-slate-600">{rule.internal_port ?? rule.InternalPort ?? "—"}</td>
-                    <td className="py-1.5 pr-3 text-slate-600">{rule.protocol ?? rule.Protocol ?? "—"}</td>
+                    <td className="py-1.5 pr-3 lb-text-muted">{rule.destination_ip ?? rule.DestinationIPAddress ?? "—"}</td>
+                    <td className="py-1.5 pr-3 lb-text-muted">{rule.external_port ?? rule.ExternalPort ?? "—"}</td>
+                    <td className="py-1.5 pr-3 lb-text-muted">{rule.internal_port ?? rule.InternalPort ?? "—"}</td>
+                    <td className="py-1.5 pr-3 lb-text-muted">{rule.protocol ?? rule.Protocol ?? "—"}</td>
                     <td className="py-1.5 text-right">
                       <button
                         onClick={() => handleDelete(rule.id)}

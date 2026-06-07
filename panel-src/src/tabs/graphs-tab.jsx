@@ -43,7 +43,7 @@ export function GraphsTab() {
       <StateBox loading={loading} error={error} />
       {data && (
         points.length < 2
-          ? <p className="text-sm text-slate-500">
+          ? <p className="text-sm lb-text-muted">
               Historique en cours de constitution (un point est ajouté à chaque rafraîchissement, ~1/min).
               Revenez dans quelques minutes.
             </p>
@@ -61,7 +61,7 @@ export function GraphsTab() {
               )}
             </div>
       )}
-      <p className="mt-3 text-xs text-slate-500">
+      <p className="mt-3 text-xs lb-text-muted">
         Somme des débits instantanés de tous les appareils connectés, échantillonnée à
         chaque cycle de rafraîchissement (~1 minute) et conservée en mémoire (~12h).
         L'historique est réinitialisé au redémarrage de Home Assistant.

@@ -3,9 +3,9 @@ import { Card, StateBox } from "../components/card.jsx";
 
 function Row({ label, value }) {
   return (
-    <div className="flex justify-between border-b border-slate-100 py-1 text-sm last:border-0">
-      <span className="text-slate-500">{label}</span>
-      <span className="font-medium text-slate-900">{value ?? "—"}</span>
+    <div className="flex justify-between border-b lb-border py-1 text-sm last:border-0">
+      <span className="lb-text-muted">{label}</span>
+      <span className="font-medium lb-text">{value ?? "—"}</span>
     </div>
   );
 }

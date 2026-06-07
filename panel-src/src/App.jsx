@@ -36,13 +36,13 @@ export default function App() {
   const hass = useHass();
 
   if (!hass) {
-    return <p className="p-6 text-sm text-slate-500">En attente de la connexion à Home Assistant…</p>;
+    return <p className="p-6 text-sm lb-text-muted">En attente de la connexion à Home Assistant…</p>;
   }
 
   return (
     <main className="space-y-4">
       <header className="flex items-center gap-2 py-2">
-        <span className="text-lg font-semibold text-slate-900">📡 Oralink — Livebox</span>
+        <span className="text-lg font-semibold lb-text">📡 Oralink — Livebox</span>
       </header>
 
       <Tabs defaultValue={TABS[0].id}>

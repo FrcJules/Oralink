@@ -32,7 +32,7 @@ function AddContactForm({ onSaved }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="mb-3 rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+        className="lb-btn-primary mb-3"
       >
         + Ajouter un contact
       </button>
@@ -40,33 +40,33 @@ function AddContactForm({ onSaved }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mb-4 grid gap-2 rounded-lg border border-slate-200 p-3 sm:grid-cols-3">
-      <label className="flex flex-col gap-1 text-xs text-slate-500">
+    <form onSubmit={handleSubmit} className="mb-4 grid gap-2 rounded-lg border lb-border p-3 sm:grid-cols-3">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Nom
-        <input value={form.name} onChange={set("name")} required className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900" />
+        <input value={form.name} onChange={set("name")} required className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
       </label>
-      <label className="flex flex-col gap-1 text-xs text-slate-500">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Prénom
-        <input value={form.first_name} onChange={set("first_name")} className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900" />
+        <input value={form.first_name} onChange={set("first_name")} className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
       </label>
       <span />
-      <label className="flex flex-col gap-1 text-xs text-slate-500">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Mobile
-        <input value={form.cell} onChange={set("cell")} className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900" />
+        <input value={form.cell} onChange={set("cell")} className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
       </label>
-      <label className="flex flex-col gap-1 text-xs text-slate-500">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Domicile
-        <input value={form.home} onChange={set("home")} className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900" />
+        <input value={form.home} onChange={set("home")} className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
       </label>
-      <label className="flex flex-col gap-1 text-xs text-slate-500">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Travail
-        <input value={form.work} onChange={set("work")} className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900" />
+        <input value={form.work} onChange={set("work")} className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
       </label>
       <div className="flex gap-2 sm:col-span-3">
-        <button type="submit" disabled={saving} className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+        <button type="submit" disabled={saving} className="lb-btn-primary">
           {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
-        <button type="button" onClick={() => setOpen(false)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
+        <button type="button" onClick={() => setOpen(false)} className="lb-btn-outline">
           Annuler
         </button>
       </div>
@@ -94,12 +94,12 @@ export function PhoneTab() {
         <StateBox loading={loading} error={error} />
         {data && (
           callers.length === 0
-            ? <p className="text-sm text-slate-500">Aucun appel enregistré.</p>
+            ? <p className="text-sm lb-text-muted">Aucun appel enregistré.</p>
             : <ul className="space-y-1 text-sm">
                 {callers.slice(0, 30).map((c) => (
-                  <li key={c.id} className="flex items-center justify-between border-b border-slate-100 py-1 last:border-0">
-                    <span className="font-medium text-slate-900">{c.phone_number || "Numéro masqué"}</span>
-                    <span className="text-xs text-slate-500">
+                  <li key={c.id} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
+                    <span className="font-medium lb-text">{c.phone_number || "Numéro masqué"}</span>
+                    <span className="text-xs lb-text-muted">
                       {STATUS_LABEL[c.status] ?? c.status} · {c.date} {c.duration ? `· ${c.duration}s` : ""}
                     </span>
                   </li>
@@ -112,13 +112,13 @@ export function PhoneTab() {
         <AddContactForm onSaved={refresh} />
         {data && (
           contacts.length === 0
-            ? <p className="text-sm text-slate-500">Aucun contact enregistré sur la Livebox.</p>
+            ? <p className="text-sm lb-text-muted">Aucun contact enregistré sur la Livebox.</p>
             : <ul className="space-y-1 text-sm">
                 {contacts.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between border-b border-slate-100 py-1 last:border-0">
+                  <li key={c.id} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
                     <span>
-                      <span className="font-medium text-slate-900">{c.name}</span>
-                      <span className="ml-2 text-xs text-slate-500">{[c.cell, c.home, c.work].filter(Boolean).join(" · ")}</span>
+                      <span className="font-medium lb-text">{c.name}</span>
+                      <span className="ml-2 text-xs lb-text-muted">{[c.cell, c.home, c.work].filter(Boolean).join(" · ")}</span>
                     </span>
                     <button onClick={() => handleDelete(c.id)} className="text-xs text-red-600 hover:underline">
                       Supprimer

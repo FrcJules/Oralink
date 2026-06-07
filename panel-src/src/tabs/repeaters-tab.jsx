@@ -34,38 +34,38 @@ function RepeaterForm({ repeater, onSaved }) {
 
   return (
     <form onSubmit={handleSubmit} className="grid gap-2 sm:grid-cols-4 sm:items-end">
-      <label className="flex flex-col gap-1 text-xs text-slate-500">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Adresse IP
         <input
           value={ip}
           onChange={(e) => setIp(e.target.value)}
           placeholder="192.168.1.x"
-          className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+          className="rounded-md border lb-border px-2 py-1 text-sm lb-text"
         />
       </label>
-      <label className="flex flex-col gap-1 text-xs text-slate-500">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Identifiant
         <input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           placeholder="admin"
-          className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+          className="rounded-md border lb-border px-2 py-1 text-sm lb-text"
         />
       </label>
-      <label className="flex flex-col gap-1 text-xs text-slate-500">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Mot de passe
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder={repeater.has_password ? "••••••••" : ""}
-          className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900"
+          className="rounded-md border lb-border px-2 py-1 text-sm lb-text"
         />
       </label>
       <button
         type="submit"
         disabled={saving}
-        className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+        className="lb-btn-primary"
       >
         {saving ? "Enregistrement…" : "Enregistrer"}
       </button>
@@ -80,18 +80,18 @@ export function RepeatersTab() {
   return (
     <Card title="Répéteurs Wifi — paramètres de connexion">
       <StateBox loading={loading} error={error} />
-      <p className="mb-3 text-xs text-slate-500">
+      <p className="mb-3 text-xs lb-text-muted">
         Adresse IP et identifiants utilisés pour se connecter directement à
         chaque répéteur (nécessaires aux futures fonctionnalités de pilotage).
         Enregistrés en local au format JSON, dans le stockage de Home Assistant.
       </p>
       {data && (
         data.length === 0
-          ? <p className="text-sm text-slate-500">Aucun répéteur détecté dans la topologie.</p>
+          ? <p className="text-sm lb-text-muted">Aucun répéteur détecté dans la topologie.</p>
           : <div className="space-y-4">
               {data.map((repeater) => (
-                <div key={repeater.key} className="rounded-lg border border-slate-200 p-3">
-                  <p className="mb-2 text-sm font-medium text-slate-900">📡 {repeater.name}</p>
+                <div key={repeater.key} className="rounded-lg border lb-border p-3">
+                  <p className="mb-2 text-sm font-medium lb-text">📡 {repeater.name}</p>
                   <RepeaterForm repeater={repeater} onSaved={refresh} />
                 </div>
               ))}
