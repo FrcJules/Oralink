@@ -28,6 +28,7 @@ from .const import (
     DOMAIN,
 )
 from .helpers import find_item
+from .repeater_store import RepeaterStore
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(minutes=1)
@@ -54,6 +55,8 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self._topology_cache_at: datetime | None = None
         self._topology_last_update: str | None = None
 
+        self.repeater_store = RepeaterStore(hass, config_entry.entry_id)
+
     async def _async_setup(self) -> None:
         """Coordinator setup."""
         self.api = AIOSysbus(
@@ -64,6 +67,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             port=self.config_entry.data[CONF_PORT],
             use_tls=self.config_entry.data.get(CONF_USE_TLS, False),
         )
+        await self.repeater_store.async_load()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data."""

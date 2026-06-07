@@ -6,6 +6,7 @@ import { DhcpTab } from "./tabs/dhcp-tab.jsx";
 import { NatTab } from "./tabs/nat-tab.jsx";
 import { TopologyTab } from "./tabs/topology-tab.jsx";
 import { AdvancedTab } from "./tabs/advanced-tab.jsx";
+import { RepeatersTab } from "./tabs/repeaters-tab.jsx";
 import { ComingSoonTab } from "./tabs/coming-soon-tab.jsx";
 
 const TABS = [
@@ -14,6 +15,7 @@ const TABS = [
   { id: "dhcp", label: "DHCP", render: () => <DhcpTab /> },
   { id: "nat", label: "NAT", render: () => <NatTab /> },
   { id: "topology", label: "Topologie", render: () => <TopologyTab /> },
+  { id: "repeaters", label: "Répéteurs", render: () => <RepeatersTab /> },
   { id: "advanced", label: "Avancé", render: () => <AdvancedTab /> },
   {
     id: "events",

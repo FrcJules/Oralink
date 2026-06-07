@@ -64,6 +64,13 @@ manquantes côté panel Oralink, par ordre de priorité suggéré :
    changement de box.
 4. **Vue répéteurs Wifi détaillée** (`LmRepeaterTab`), **table de routage** et
    **contrôle LEDs/écran** — extensions de l'onglet "Avancé" existant.
+   ✅ *Première brique posée* : un onglet **"Répéteurs"** permet de saisir et
+   persister (en JSON, via `repeater_store.py` / helper `Store` de HA, dans
+   `.storage/livebox_repeaters_<entry_id>`) l'IP et les identifiants de
+   connexion de chaque répéteur détecté (commandes WS `livebox/repeaters` et
+   `livebox/repeaters/set` dans `panel.py`). Reste à faire : utiliser ces
+   identifiants pour se connecter réellement aux répéteurs et afficher leurs
+   informations détaillées (modèle, firmware, appareils associés, actions...).
 5. **Téléphone** (historique d'appels + carnet de contacts, `LmPhoneTab`) et
    **décodeurs TV Orange** (`LmTvDecoderTab`) — en dernier, car dépendent
    d'équipements que tous les utilisateurs n'ont pas.

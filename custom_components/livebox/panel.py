@@ -45,6 +45,9 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_reboot)
     # Device type
     websocket_api.async_register_command(hass, ws_set_device_type)
+    # Repeaters (settings: IP + identifiants)
+    websocket_api.async_register_command(hass, ws_get_repeaters)
+    websocket_api.async_register_command(hass, ws_set_repeater)
 
 
 def _get_coordinator(hass: HomeAssistant):
@@ -716,3 +719,55 @@ async def ws_dhcp_params_set(hass, connection, msg):
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "dhcp_params_failed", str(err))
+
+
+# ── Repeaters (settings: IP + identifiants de connexion) ──────────────────────
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/repeaters"})
+def ws_get_repeaters(hass, connection, msg):
+    """Liste les répéteurs détectés (topologie) avec leurs paramètres connus."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    repeaters = coordinator.data.get("topology_repeaters", {})
+    store = coordinator.repeater_store
+    result = [
+        {
+            "key": key,
+            "name": name,
+            "ip": store.get(key).get("ip", ""),
+            "username": store.get(key).get("username", ""),
+            "has_password": bool(store.get(key).get("password")),
+        }
+        for key, name in repeaters.items()
+    ]
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/repeaters/set",
+    vol.Required("key"): str,
+    vol.Optional("ip"): str,
+    vol.Optional("username"): str,
+    vol.Optional("password"): str,
+})
+@websocket_api.async_response
+async def ws_set_repeater(hass, connection, msg):
+    """Enregistre l'IP et/ou les identifiants de connexion d'un répéteur (JSON persistant)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.repeater_store.async_set(
+            msg["key"],
+            ip=msg.get("ip"),
+            username=msg.get("username"),
+            password=msg.get("password"),
+        )
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "repeater_set_failed", str(err))
