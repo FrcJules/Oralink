@@ -5,7 +5,10 @@ import json
 from pathlib import Path
 
 import voluptuous as vol
-from homeassistant.components.frontend import async_register_built_in_panel
+from homeassistant.components.frontend import (
+    async_register_built_in_panel,
+    async_remove_panel,
+)
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -24,7 +27,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 _LOGGER = logging.getLogger(__name__)
 
 
-_PANEL_BUILD = "b31"  # bump whenever the JS bundle changes
+_PANEL_BUILD = "b32"  # bump whenever the JS bundle changes
 
 
 def _panel_module_url() -> str:
@@ -89,7 +92,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiveboxConfigEntry) -> b
 
 async def async_unload_entry(hass: HomeAssistant, entry: LiveboxConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok and not hass.config_entries.async_entries(DOMAIN):
+        if hass.data.pop(f"{DOMAIN}_panel_registered", None):
+            async_remove_panel(hass, "livebox")
+    return unload_ok
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: LiveboxConfigEntry):
