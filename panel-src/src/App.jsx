@@ -7,6 +7,10 @@ import { NatTab } from "./tabs/nat-tab.jsx";
 import { TopologyTab } from "./tabs/topology-tab.jsx";
 import { AdvancedTab } from "./tabs/advanced-tab.jsx";
 import { RepeatersTab } from "./tabs/repeaters-tab.jsx";
+import { SystemTab } from "./tabs/system-tab.jsx";
+import { PhoneTab } from "./tabs/phone-tab.jsx";
+import { GraphsTab } from "./tabs/graphs-tab.jsx";
+import { EventsTab } from "./tabs/events-tab.jsx";
 import { ComingSoonTab } from "./tabs/coming-soon-tab.jsx";
 
 const TABS = [
@@ -16,16 +20,15 @@ const TABS = [
   { id: "nat", label: "NAT", render: () => <NatTab /> },
   { id: "topology", label: "Topologie", render: () => <TopologyTab /> },
   { id: "repeaters", label: "Répéteurs", render: () => <RepeatersTab /> },
+  { id: "events", label: "Événements", render: () => <EventsTab /> },
+  { id: "graphs", label: "Graphiques", render: () => <GraphsTab /> },
+  { id: "phone", label: "Téléphone", render: () => <PhoneTab /> },
+  { id: "system", label: "Système", render: () => <SystemTab /> },
   { id: "advanced", label: "Avancé", render: () => <AdvancedTab /> },
   {
-    id: "events",
-    label: "Événements",
-    render: () => <ComingSoonTab title="Journal d'événements" description="Connexions/déconnexions, alertes, notifications email" />,
-  },
-  {
-    id: "graphs",
-    label: "Graphiques",
-    render: () => <ComingSoonTab title="Graphiques de trafic" description="Historique de bande passante par appareil et par interface" />,
+    id: "tv",
+    label: "Décodeurs TV",
+    render: () => <ComingSoonTab title="Décodeurs TV Orange" description="Chaînes, télécommande virtuelle, infos décodeur" />,
   },
 ];
 

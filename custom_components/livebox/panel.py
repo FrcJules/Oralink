@@ -48,6 +48,21 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     # Repeaters (settings: IP + identifiants)
     websocket_api.async_register_command(hass, ws_get_repeaters)
     websocket_api.async_register_command(hass, ws_set_repeater)
+    # Système : LEDs, écran, sauvegarde/restauration
+    websocket_api.async_register_command(hass, ws_get_system)
+    websocket_api.async_register_command(hass, ws_set_led)
+    websocket_api.async_register_command(hass, ws_set_show_wifi_password)
+    websocket_api.async_register_command(hass, ws_set_auto_backup)
+    websocket_api.async_register_command(hass, ws_run_backup)
+    websocket_api.async_register_command(hass, ws_run_restore)
+    # Téléphone : historique d'appels + carnet de contacts
+    websocket_api.async_register_command(hass, ws_get_phone)
+    websocket_api.async_register_command(hass, ws_add_contact)
+    websocket_api.async_register_command(hass, ws_delete_contact)
+    # Graphiques de trafic (historique en mémoire)
+    websocket_api.async_register_command(hass, ws_get_graphs)
+    # Journal d'événements (connexions/déconnexions)
+    websocket_api.async_register_command(hass, ws_get_events)
 
 
 def _get_coordinator(hass: HomeAssistant):
@@ -771,3 +786,231 @@ async def ws_set_repeater(hass, connection, msg):
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "repeater_set_failed", str(err))
+
+
+# ── Système : LEDs, écran, sauvegarde/restauration ────────────────────────────
+
+async def _safe_post(coordinator, obj, fn, conf=None):
+    """Appel direct à l'API sysbus, tolérant aux objets absents sur certains modèles."""
+    try:
+        if conf is not None:
+            raw = await coordinator.api.devices._auth.post(obj, fn, conf)
+        else:
+            raw = await coordinator.api.devices._auth.post(obj, fn)
+        return raw.get("status") if isinstance(raw, dict) else raw
+    except Exception:
+        return None
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/system"})
+@websocket_api.async_response
+async def ws_get_system(hass, connection, msg):
+    """État des LEDs, de l'affichage du mot de passe Wifi et de la sauvegarde réseau."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    led_orange = await _safe_post(coordinator, "LEDs.LED.Orange", "get")
+    led_white = await _safe_post(coordinator, "LEDs.LED.White", "get")
+    show_wifi_password = await _safe_post(coordinator, "Screen", "getShowWifiPassword")
+    backup = (await coordinator._make_request(coordinator.api.nmc.async_get_network)).get("status", {})
+    if not isinstance(backup, dict):
+        backup = {}
+
+    connection.send_result(msg["id"], {
+        "led_orange": led_orange.get("Brightness") if isinstance(led_orange, dict) else None,
+        "led_white": led_white.get("Brightness") if isinstance(led_white, dict) else None,
+        "show_wifi_password": (
+            show_wifi_password.get("Enable") if isinstance(show_wifi_password, dict) else show_wifi_password
+        ),
+        "backup": {
+            "auto_enabled": backup.get("Enable", False),
+            "status": backup.get("Status", ""),
+            "last_backup": backup.get("ConfigDate", ""),
+        },
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/system/led/set",
+    vol.Required("led"): vol.In(["orange", "white"]),
+    vol.Required("brightness"): vol.All(int, vol.Range(min=0, max=100)),
+})
+@websocket_api.async_response
+async def ws_set_led(hass, connection, msg):
+    """Règle la luminosité d'une LED de la Livebox (0-100)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    obj = "LEDs.LED.Orange" if msg["led"] == "orange" else "LEDs.LED.White"
+    try:
+        await coordinator.api.devices._auth.post(obj, "set", {"Brightness": msg["brightness"]})
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "led_set_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/system/show_wifi_password/set",
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_set_show_wifi_password(hass, connection, msg):
+    """Active/désactive l'affichage du mot de passe Wifi sur l'écran de la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.screen.async_set_show_wifi_password({"Enable": msg["enabled"]})
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "show_wifi_password_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/system/backup/auto/set",
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_set_auto_backup(hass, connection, msg):
+    """Active/désactive la sauvegarde automatique de la configuration réseau."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.nmc.async_enable_network_bridge({"state": msg["enabled"]})
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "auto_backup_failed", str(err))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/system/backup/run"})
+@websocket_api.async_response
+async def ws_run_backup(hass, connection, msg):
+    """Lance une sauvegarde immédiate de la configuration réseau."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.nmc.async_backup_network({"delay": True})
+        connection.send_result(msg["id"], {"status": "requested"})
+    except Exception as err:
+        connection.send_error(msg["id"], "backup_failed", str(err))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/system/restore/run"})
+@websocket_api.async_response
+async def ws_run_restore(hass, connection, msg):
+    """Lance la restauration de la configuration réseau depuis la dernière sauvegarde."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.nmc.async_restore_network()
+        connection.send_result(msg["id"], {"status": "requested"})
+    except Exception as err:
+        connection.send_error(msg["id"], "restore_failed", str(err))
+
+
+# ── Téléphone : historique d'appels + carnet de contacts ─────────────────────
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/phone"})
+def ws_get_phone(hass, connection, msg):
+    """Historique d'appels (cache coordinator) + carnet de contacts (cache coordinator)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], {
+        "callers": coordinator.data.get("callers", []),
+        "missed": coordinator.data.get("cmissed", []),
+        "contacts": coordinator.data.get("contacts", []),
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/phone/contacts/add",
+    vol.Required("name"): str,
+    vol.Optional("first_name", default=""): str,
+    vol.Optional("cell"): str,
+    vol.Optional("home"): str,
+    vol.Optional("work"): str,
+})
+@websocket_api.async_response
+async def ws_add_contact(hass, connection, msg):
+    """Ajoute un contact au carnet d'adresses de la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    numbers = []
+    for number, kind in (
+        (msg.get("cell"), "CELL"),
+        (msg.get("home"), "HOME"),
+        (msg.get("work"), "WORK"),
+    ):
+        if number:
+            numbers.append({"name": number, "type": kind, "preferred": False})
+    contact = {
+        "name": f"N:{msg['name']};{msg.get('first_name', '')};",
+        "formattedName": f"{msg.get('first_name', '')} {msg['name']}".strip(),
+        "telephoneNumbers": numbers,
+    }
+    try:
+        await coordinator.api.phonebook.async_add_contact_uuid({"contact": contact})
+        await coordinator.async_request_refresh()
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "contact_add_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/phone/contacts/delete",
+    vol.Required("unique_id"): str,
+})
+@websocket_api.async_response
+async def ws_delete_contact(hass, connection, msg):
+    """Supprime un contact du carnet d'adresses de la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.phonebook.async_del_contact_uid({"uniqueID": msg["unique_id"]})
+        await coordinator.async_request_refresh()
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "contact_delete_failed", str(err))
+
+
+# ── Graphiques de trafic (historique en mémoire) ─────────────────────────────
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/graphs"})
+def ws_get_graphs(hass, connection, msg):
+    """Historique de trafic agrégé collecté en mémoire (~12h, un point par minute)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], coordinator.traffic_history)
+
+
+# ── Journal d'événements (connexions/déconnexions) ───────────────────────────
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/events"})
+def ws_get_events(hass, connection, msg):
+    """Journal des connexions/déconnexions d'appareils détectées en mémoire."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], coordinator.event_log)

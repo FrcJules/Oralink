@@ -52,36 +52,70 @@ Comparaison faite avec `LiveboxMonitor/src/LiveboxMonitor/tabs/` (présent dans
 le dossier de travail à côté de ce repo). Fonctionnalités identifiées comme
 manquantes côté panel Oralink, par ordre de priorité suggéré :
 
-1. **Journal d'événements** (`LmEventsTab`) + **notifications email** —
-   historique des connexions/déconnexions et alertes ; forte valeur
-   diagnostic/sécurité. Nécessite de nouvelles commandes WS dans `panel.py`.
-2. **Graphiques de trafic historiques** (`LmGraphTab`) — visualiser l'usage
-   réseau dans le temps (par appareil/interface), au-delà des sensors
-   instantanés déjà exposés. Bibliothèque cible : `recharts` (déjà dans
-   `panel-src/package.json`).
-3. **Sauvegarde / restauration de la configuration** (action "Backup and
-   Restore..." de `LmActionsTab`) — utile après un factory reset ou un
-   changement de box.
-4. **Vue répéteurs Wifi détaillée** (`LmRepeaterTab`), **table de routage** et
-   **contrôle LEDs/écran** — extensions de l'onglet "Avancé" existant.
-   ✅ *Première brique posée* : un onglet **"Répéteurs"** permet de saisir et
-   persister (en JSON, via `repeater_store.py` / helper `Store` de HA, dans
-   `.storage/livebox_repeaters_<entry_id>`) l'IP et les identifiants de
-   connexion de chaque répéteur détecté (commandes WS `livebox/repeaters` et
-   `livebox/repeaters/set` dans `panel.py`). Reste à faire : utiliser ces
-   identifiants pour se connecter réellement aux répéteurs et afficher leurs
-   informations détaillées (modèle, firmware, appareils associés, actions...).
-5. **Téléphone** (historique d'appels + carnet de contacts, `LmPhoneTab`) et
-   **décodeurs TV Orange** (`LmTvDecoderTab`) — en dernier, car dépendent
-   d'équipements que tous les utilisateurs n'ont pas.
+1. ✅ **Journal d'événements** (`LmEventsTab`) — onglet **"Événements"** qui
+   journalise en mémoire (côté `coordinator`, `deque` `_event_log`, exposé par
+   `coordinator.event_log` / commande WS `livebox/events`) les transitions
+   `Active` détectées entre deux rafraîchissements des appareils
+   (`_record_device_events`). Volontairement plus simple que le système natif
+   `eventmanager`/`get_events` de la Livebox (notifications par
+   souscription/long-polling — `open_channel`/`subscribe`, cf.
+   `LmEventsTab.LmEventsApi`), peu adapté au modèle `DataUpdateCoordinator`
+   basé sur du polling. **Notifications email** : volontairement non
+   implémentées dans l'intégration — recommandé de passer par une
+   automatisation Home Assistant (déclencheur sur les `device_tracker`/
+   capteurs de présence existants + service `notify.*`), plus idiomatique
+   qu'un client SMTP custom dans le composant.
+2. ✅ **Graphiques de trafic** (`LmGraphTab`) — onglet **"Graphiques"** avec
+   `recharts`, alimenté par un historique en mémoire (`deque` `_traffic_history`,
+   ~12h à raison d'un point par minute, `coordinator.traffic_history` /
+   commande WS `livebox/graphs`) du débit agrégé (somme des débits instantanés
+   de tous les appareils, cf. `_record_traffic_history`). Plus simple que
+   LiveboxMonitor (pas de historique par appareil/interface ni de persistance
+   sur disque — réinitialisé au redémarrage de HA).
+3. ✅ **Sauvegarde / restauration de la configuration** (action "Backup and
+   Restore..." de `LmActionsTab`) — section dans l'onglet **"Système"** :
+   statut + activation de la sauvegarde automatique
+   (`NMC.NetworkConfig:enableNetworkBR`), lancement d'une sauvegarde
+   (`launchNetworkBackup`) et restauration (`launchNetworkRestore`), via
+   `coordinator.api.nmc.*` (commandes WS `livebox/system/backup/*`).
+4. ✅ **Contrôle LEDs et écran** (action "LEDs and Screen..." de `LmActionsTab`)
+   — section dans l'onglet **"Système"** : luminosité des LEDs Orange/Blanche
+   (`LEDs.LED.Orange|White:get/set`, en appel direct via `_auth.post` —
+   tolérant si l'objet n'existe pas sur le modèle, cf. `_safe_post`) et
+   affichage du mot de passe Wifi sur l'écran
+   (`coordinator.api.screen.async_get/set_show_wifi_password`).
+5. **Vue répéteurs Wifi détaillée** (`LmRepeaterTab`) et **table de routage**
+   (cette dernière `NMC.LAN:getStaticRoutes` — ⚠️ réservée aux modèles "Pro"
+   selon LiveboxMonitor, et absente du wrapper `aiosysbus` : nécessiterait un
+   appel `_auth.post` direct non documenté, à valider avant d'investir dessus).
+   ✅ *Première brique posée pour les répéteurs* : un onglet **"Répéteurs"**
+   permet de saisir et persister (en JSON, via `repeater_store.py` / helper
+   `Store` de HA, dans `.storage/livebox_repeaters_<entry_id>`) l'IP et les
+   identifiants de connexion de chaque répéteur détecté (commandes WS
+   `livebox/repeaters` et `livebox/repeaters/set` dans `panel.py`). Reste à
+   faire : utiliser ces identifiants pour se connecter réellement aux
+   répéteurs (session `AIOSysbus` éphémère pointée sur leur IP) et afficher
+   leurs informations détaillées (modèle, firmware, appareils associés,
+   actions...).
+6. ✅ **Téléphone** (`LmPhoneTab`) — onglet **"Téléphone"** : historique
+   d'appels (réutilise `coordinator.data["callers"]`, déjà peuplé par
+   `async_get_callers`) et carnet de contacts de la Livebox
+   (`coordinator.api.phonebook.*` — lecture via `coordinator.async_get_contacts`
+   exposée dans `coordinator.data["contacts"]`, ajout/suppression via les
+   commandes WS `livebox/phone/contacts/add|delete`).
+7. **Décodeurs TV Orange** (`LmTvDecoderTab`) — toujours en
+   "Bientôt disponible" (`coming-soon-tab.jsx`) : nécessite de découvrir
+   l'adresse IP locale du décodeur et de lui parler en HTTP direct (pas
+   d'API sysbus), donc une approche assez différente du reste du panel.
 
 Pour chaque ajout, le pattern à suivre est celui des onglets existants : une
 ou plusieurs commandes `ws_get_*`/`ws_*_set` dans `panel.py` (suivant le
 pattern `_get_coordinator` → lecture/mutation → `connection.send_result`),
 une méthode `coordinator.async_get_*` si une nouvelle donnée API est
-nécessaire, un composant dans `panel-src/src/tabs/`, et les traductions FR
-dans `translations/fr.json`. Les emplacements de ces futurs onglets sont déjà
-posés dans `panel-src/src/tabs/coming-soon-tab.jsx` / `App.jsx`.
+nécessaire, un composant dans `panel-src/src/tabs/`, et l'enregistrement dans
+`App.jsx` (les onglets de ce panel sont rédigés directement en français dans
+le JSX — pas besoin de toucher `translations/fr.json`, qui ne couvre que le
+config flow HA).
 
 **Hors-périmètre** (spécifique à l'usage desktop multi-comptes de
 LiveboxMonitor, peu pertinent pour une intégration HA) : gestion de profils

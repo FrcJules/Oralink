@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -55,6 +56,11 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self._topology_cache_at: datetime | None = None
         self._topology_last_update: str | None = None
 
+        # Rolling in-memory history for the "Graphiques" tab (~12h at 1 update/min)
+        self._traffic_history: deque[dict[str, Any]] = deque(maxlen=720)
+        # Rolling connection/disconnection log for the "Événements" tab
+        self._event_log: deque[dict[str, Any]] = deque(maxlen=300)
+
         self.repeater_store = RepeaterStore(hass, config_entry.entry_id)
 
     async def _async_setup(self) -> None:
@@ -99,6 +105,8 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             lan_tracking = self.config_entry.options.get(
                 CONF_LAN_TRACKING, DEFAULT_LAN_TRACKING
             )
+            previous_devices = (self.data or {}).get("devices", {})
+
             topology_via_device, topology_repeaters = await self.async_get_topology()
             devices, device_counters = await self.async_get_devices(
                 lan_tracking, wifi_tracking, set(topology_repeaters)
@@ -106,6 +114,12 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             callers, cmissed = await self.async_get_callers()
 
             await self.async_detect_new_dvices(devices)
+            self._record_device_events(previous_devices, devices)
+
+            device_traffic = await self.async_get_device_traffic()
+            stats = await self.async_get_results()
+            wan_counters = await self.async_get_wan_counters()
+            self._record_traffic_history(device_traffic, wan_counters)
 
             return {
                 "cmissed": cmissed,
@@ -134,12 +148,13 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "dhcp_leases": await self.async_get_dhcp_leases(),
                 "guest_dhcp_leases": await self.async_get_dhcp_leases("guest"),
                 "dhcp_static_leases": await self.async_get_dhcp_static_leases(),
-                "stats": await self.async_get_results(),
-                "wan_counters": await self.async_get_wan_counters(),
-                "device_traffic": await self.async_get_device_traffic(),
+                "stats": stats,
+                "wan_counters": wan_counters,
+                "device_traffic": device_traffic,
                 "firewall_level": await self.async_get_firewall_level(),
                 "reboot_history": await self.async_get_reboot_history(),
                 "ping_response": await self.async_get_ping_response(),
+                "contacts": await self.async_get_contacts(),
             }
         except AiosysbusException as error:
             _LOGGER.error("Error while fetch data information: %s", error)
@@ -325,6 +340,26 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
 
         return callers, cmisseds
 
+    async def async_get_contacts(self) -> list[dict[str, Any]]:
+        """Get phonebook contacts (carnet d'adresses de la Livebox)."""
+        raw = (await self._make_request(self.api.phonebook.async_get_contacts)).get(
+            "status", []
+        )
+        if not isinstance(raw, list):
+            return []
+        contacts = []
+        for c in raw:
+            numbers = c.get("telephoneNumbers") or []
+            by_type = {n.get("type"): n.get("name") for n in numbers if isinstance(n, dict)}
+            contacts.append({
+                "id": c.get("uniqueID", ""),
+                "name": c.get("formattedName", ""),
+                "cell": by_type.get("CELL", ""),
+                "home": by_type.get("HOME", ""),
+                "work": by_type.get("WORK", ""),
+            })
+        return contacts
+
     async def async_get_dsl_status(self) -> dict[str, Any]:
         """Get dsl status."""
         parameters = {"mibs": "dsl", "flag": "", "traverse": "down"}
@@ -487,6 +522,49 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                     async_dispatcher_send(self.hass, self.signal_device_new)
                     async_dispatcher_send(self.hass, self.signal_wan_access_new)
                     break
+
+    def _record_device_events(
+        self, previous_devices: dict[str, Any], devices: dict[str, Any]
+    ) -> None:
+        """Append connection/disconnection events detected since the last poll."""
+        if not previous_devices:
+            return
+        now = str(datetime.now(tz=DEFAULT_TIME_ZONE))
+        for mac, device in devices.items():
+            was_active = previous_devices.get(mac, {}).get("Active")
+            is_active = device.get("Active", False)
+            if was_active is None or was_active == is_active:
+                continue
+            self._event_log.appendleft({
+                "time": now,
+                "mac": mac,
+                "name": device.get("Name", mac),
+                "event": "connected" if is_active else "disconnected",
+            })
+
+    def _record_traffic_history(
+        self, device_traffic: dict[str, Any], wan_counters: dict[str, Any]
+    ) -> None:
+        """Append an aggregate traffic sample for the "Graphiques" tab."""
+        rate_rx = round(sum(t.get("rate_rx", 0) for t in device_traffic.values()), 3)
+        rate_tx = round(sum(t.get("rate_tx", 0) for t in device_traffic.values()), 3)
+        self._traffic_history.append({
+            "time": str(datetime.now(tz=DEFAULT_TIME_ZONE)),
+            "rate_rx": rate_rx,
+            "rate_tx": rate_tx,
+            "wan_rx_bytes": wan_counters.get("BytesReceived") if isinstance(wan_counters, dict) else None,
+            "wan_tx_bytes": wan_counters.get("BytesSent") if isinstance(wan_counters, dict) else None,
+        })
+
+    @property
+    def event_log(self) -> list[dict[str, Any]]:
+        """Recent connection/disconnection events (most recent first)."""
+        return list(self._event_log)
+
+    @property
+    def traffic_history(self) -> list[dict[str, Any]]:
+        """Aggregate traffic samples collected over time (oldest first)."""
+        return list(self._traffic_history)
 
     async def async_get_port_forwarding(self) -> list[dict[str, Any]]:
         """Get port forwarding."""
