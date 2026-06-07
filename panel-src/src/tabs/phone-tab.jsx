@@ -46,24 +46,24 @@ function AddContactForm({ onSaved }) {
     <form onSubmit={handleSubmit} className="mb-4 grid gap-2 rounded-lg border lb-border p-3 sm:grid-cols-3">
       <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Nom
-        <input value={form.name} onChange={set("name")} required className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
+        <input value={form.name} onChange={set("name")} required className="lb-input" />
       </label>
       <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Prénom
-        <input value={form.first_name} onChange={set("first_name")} className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
+        <input value={form.first_name} onChange={set("first_name")} className="lb-input" />
       </label>
       <span />
       <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Mobile
-        <input value={form.cell} onChange={set("cell")} className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
+        <input value={form.cell} onChange={set("cell")} className="lb-input" />
       </label>
       <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Domicile
-        <input value={form.home} onChange={set("home")} className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
+        <input value={form.home} onChange={set("home")} className="lb-input" />
       </label>
       <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Travail
-        <input value={form.work} onChange={set("work")} className="rounded-md border lb-border px-2 py-1 text-sm lb-text" />
+        <input value={form.work} onChange={set("work")} className="lb-input" />
       </label>
       <div className="flex gap-2 sm:col-span-3">
         <button type="submit" disabled={saving} className="lb-btn-primary">

@@ -110,8 +110,8 @@ export function AdvancedTab() {
             : <ul className="space-y-1 text-sm">
                 {rebootHistory.map((entry, i) => (
                   <li key={i} className="flex justify-between border-b lb-border py-1 last:border-0">
-                    <span>{entry.date ?? entry.Date ?? "—"}</span>
-                    <span className="lb-text-muted">{entry.cause ?? entry.Cause ?? entry.reason ?? "—"}</span>
+                    <span>{entry.boot_date ?? "—"}</span>
+                    <span className="lb-text-muted">{entry.boot_reason ?? "—"}</span>
                   </li>
                 ))}
               </ul>

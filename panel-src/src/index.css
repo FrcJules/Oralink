@@ -99,11 +99,24 @@
     background: var(--secondary-background-color, #f8fafc);
   }
 
-  /* Champs de formulaire */
+  /* Champs de formulaire — bordure bien visible (pas juste un fond plat) +
+     halo couleur de marque au focus, pour que les formulaires se distinguent
+     clairement du reste de la carte. */
   .lb-input {
-    @apply rounded-md border px-2 py-1 text-sm;
-    border-color: var(--divider-color, #cbd5e1);
+    @apply rounded-md px-2.5 py-1.5 text-sm transition-shadow;
+    border: 1.5px solid var(--divider-color, #cbd5e1);
     background: var(--card-background-color, #fff);
     color: var(--primary-text-color, #0f172a);
+  }
+  .lb-input::placeholder {
+    color: var(--disabled-text-color, #94a3b8);
+  }
+  .lb-input:hover {
+    border-color: var(--secondary-text-color, #94a3b8);
+  }
+  .lb-input:focus {
+    outline: none;
+    border-color: var(--lb-brand);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--lb-brand) 20%, transparent);
   }
 }

@@ -43,7 +43,7 @@ function RepeaterForm({ repeater, onSaved }) {
           value={ip}
           onChange={(e) => setIp(e.target.value)}
           placeholder="192.168.1.x"
-          className="rounded-md border lb-border px-2 py-1 text-sm lb-text"
+          className="lb-input"
         />
       </label>
       <label className="flex flex-col gap-1 text-xs lb-text-muted">
@@ -52,7 +52,7 @@ function RepeaterForm({ repeater, onSaved }) {
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           placeholder="admin"
-          className="rounded-md border lb-border px-2 py-1 text-sm lb-text"
+          className="lb-input"
         />
       </label>
       <label className="flex flex-col gap-1 text-xs lb-text-muted">
@@ -62,7 +62,7 @@ function RepeaterForm({ repeater, onSaved }) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder={repeater.has_password ? "••••••••" : ""}
-          className="rounded-md border lb-border px-2 py-1 text-sm lb-text"
+          className="lb-input"
         />
       </label>
       <button

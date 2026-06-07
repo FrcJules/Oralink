@@ -13,11 +13,11 @@ function LeaseTable({ leases, empty }) {
         </tr>
       </thead>
       <tbody>
-        {leases.map((l) => (
-          <tr key={l.mac ?? l.MACAddress} className="border-t lb-border">
-            <td className="py-1.5 pr-3 font-medium">{l.name ?? l.Name ?? l.hostname ?? "—"}</td>
-            <td className="py-1.5 pr-3 lb-text-muted">{l.ip ?? l.IPAddress ?? "—"}</td>
-            <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{l.mac ?? l.MACAddress ?? "—"}</td>
+        {leases.map((l, i) => (
+          <tr key={l.mac || i} className="border-t lb-border">
+            <td className="py-1.5 pr-3 font-medium">{l.name || "—"}</td>
+            <td className="py-1.5 pr-3 lb-text-muted">{l.ip || "—"}</td>
+            <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{l.mac || "—"}</td>
           </tr>
         ))}
       </tbody>

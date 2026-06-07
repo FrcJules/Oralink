@@ -109,6 +109,17 @@ def ws_get_devices(hass, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+def _normalize_lease(lease: dict) -> dict:
+    """Normalize a coordinator lease dict (display-style keys with spaces) for the panel."""
+    return {
+        "name": lease.get("Name") or "",
+        "ip": lease.get("IP Address") or "",
+        "mac": lease.get("Mac Address") or "",
+        "reserved": lease.get("Reserved", False),
+        "active": lease.get("Enable", False),
+    }
+
+
 @callback
 @websocket_api.websocket_command({vol.Required("type"): "livebox/dhcp"})
 def ws_get_dhcp(hass, connection, msg):
@@ -118,9 +129,9 @@ def ws_get_dhcp(hass, connection, msg):
         return
     data = coordinator.data
     connection.send_result(msg["id"], {
-        "active": data.get("dhcp_leases", []),
-        "guest": data.get("guest_dhcp_leases", []),
-        "static": data.get("dhcp_static_leases", []),
+        "active": [_normalize_lease(l) for l in data.get("dhcp_leases", [])],
+        "guest": [_normalize_lease(l) for l in data.get("guest_dhcp_leases", [])],
+        "static": [_normalize_lease(l) for l in data.get("dhcp_static_leases", [])],
     })
 
 

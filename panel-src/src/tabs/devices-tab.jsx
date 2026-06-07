@@ -1,6 +1,16 @@
 import { useWsData } from "../lib/use-ws-data.js";
 import { Card, StateBox } from "../components/card.jsx";
 
+function Traffic({ rx, tx }) {
+  if (rx == null && tx == null) return <span className="lb-text-muted">—</span>;
+  return (
+    <div className="flex flex-col gap-0.5 text-xs leading-tight tabular-nums">
+      <span className="text-sky-600">↓ {rx ?? "—"} <span className="lb-text-muted">Mb/s</span></span>
+      <span style={{ color: "var(--lb-brand)" }}>↑ {tx ?? "—"} <span className="lb-text-muted">Mb/s</span></span>
+    </div>
+  );
+}
+
 export function DevicesTab() {
   const { data, loading, error, refresh } = useWsData("livebox/devices");
 
@@ -24,7 +34,7 @@ export function DevicesTab() {
                 <th className="py-1.5 pr-3">Type</th>
                 <th className="py-1.5 pr-3">Interface</th>
                 <th className="py-1.5 pr-3">Signal</th>
-                <th className="py-1.5 pr-3">↓ / ↑</th>
+                <th className="py-1.5 pr-3">Débit</th>
               </tr>
             </thead>
             <tbody>
@@ -38,8 +48,8 @@ export function DevicesTab() {
                   <td className="py-1.5 pr-3 lb-text-muted">{d.type || "—"}</td>
                   <td className="py-1.5 pr-3 lb-text-muted">{d.interface || d.band || "—"}</td>
                   <td className="py-1.5 pr-3 lb-text-muted">{d.signal ?? "—"}</td>
-                  <td className="py-1.5 pr-3 lb-text-muted">
-                    {d.rate_rx ?? "—"} / {d.rate_tx ?? "—"}
+                  <td className="py-1.5 pr-3">
+                    <Traffic rx={d.rate_rx} tx={d.rate_tx} />
                   </td>
                 </tr>
               ))}

@@ -27,7 +27,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 _LOGGER = logging.getLogger(__name__)
 
 
-_PANEL_BUILD = "b38"  # bump whenever the JS bundle changes
+_PANEL_BUILD = "b39"  # bump whenever the JS bundle changes
 
 
 def _panel_module_url() -> str:
@@ -54,13 +54,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiveboxConfigEntry) -> b
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register custom panel (once, not per entry)
-    if not hass.data.get(f"{DOMAIN}_panel_registered"):
-        hass.data[f"{DOMAIN}_panel_registered"] = True
-        www_path = str(Path(__file__).parent / "www")
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig("/livebox_panel", www_path, False)]
-        )
+    # (Ré)enregistre le panel custom si son URL a changé (nouveau build du
+    # bundle JS). `hass.data` survit aux rechargements de l'intégration — sans
+    # cette comparaison, le panel resterait enregistré indéfiniment avec
+    # l'ancienne `module_url` figée au dernier redémarrage complet de HA, et
+    # le navigateur continuerait à charger un bundle JS périmé après chaque
+    # mise à jour, même en rechargeant l'intégration.
+    module_url = _panel_module_url()
+    previous_url = hass.data.get(f"{DOMAIN}_panel_url")
+    if previous_url != module_url:
+        if previous_url is None:
+            www_path = str(Path(__file__).parent / "www")
+            await hass.http.async_register_static_paths(
+                [StaticPathConfig("/livebox_panel", www_path, False)]
+            )
+        else:
+            async_remove_panel(hass, "livebox")
+        hass.data[f"{DOMAIN}_panel_url"] = module_url
         async_register_built_in_panel(
             hass,
             "custom",
@@ -71,7 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiveboxConfigEntry) -> b
             config={
                 "_panel_custom": {
                     "name": "livebox-panel",
-                    "module_url": _panel_module_url(),
+                    "module_url": module_url,
                 }
             },
         )
@@ -94,7 +104,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: LiveboxConfigEntry) -> 
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok and not hass.config_entries.async_entries(DOMAIN):
-        if hass.data.pop(f"{DOMAIN}_panel_registered", None):
+        if hass.data.pop(f"{DOMAIN}_panel_url", None):
             async_remove_panel(hass, "livebox")
     return unload_ok
 
