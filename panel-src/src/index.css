@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/* Le panel s'affiche dans un <iframe>/élément custom posé par Home Assistant :
+   pas de thème global, on part d'un fond neutre et de cartes "lb-card"
+   réutilisées par tous les onglets (cf. www/tabs/topology.js pour la réf.). */
+body {
+  margin: 0;
+  background: #f8fafc;
+  color: #0f172a;
+  font: 16px/1.5 system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+#root {
+  padding: 1.25rem;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+@layer components {
+  .lb-card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+  }
+  .lb-card-header {
+    @apply flex items-center gap-2 border-b border-slate-200 px-4 py-3;
+  }
+  .lb-card-title {
+    @apply text-sm font-semibold text-slate-900;
+  }
+  .lb-card-body {
+    @apply p-4;
+  }
+}
