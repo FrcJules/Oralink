@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
-import { useWsCommand } from "../lib/hass-context.jsx";
+import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 function RepeaterForm({ repeater, onSaved }) {
-  const callWs = useWsCommand();
+  const runAction = useWsAction();
   const [ip, setIp] = useState(repeater.ip);
   const [username, setUsername] = useState(repeater.username);
   const [password, setPassword] = useState("");
@@ -16,13 +16,16 @@ function RepeaterForm({ repeater, onSaved }) {
     setSaving(true);
     setError(null);
     try {
-      await callWs({
-        type: "livebox/repeaters/set",
-        key: repeater.key,
-        ip,
-        username,
-        ...(password ? { password } : {}),
-      });
+      await runAction(
+        {
+          type: "livebox/repeaters/set",
+          key: repeater.key,
+          ip,
+          username,
+          ...(password ? { password } : {}),
+        },
+        { success: `Paramètres de « ${repeater.name} » enregistrés.` },
+      );
       setPassword("");
       onSaved();
     } catch (err) {

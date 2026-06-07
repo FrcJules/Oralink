@@ -1,17 +1,20 @@
 import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
-import { useWsCommand } from "../lib/hass-context.jsx";
+import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 function LedSlider({ label, led, value, onSaved }) {
-  const callWs = useWsCommand();
+  const runAction = useWsAction();
   const [level, setLevel] = useState(value ?? 50);
   const [saving, setSaving] = useState(false);
 
   const handleCommit = async () => {
     setSaving(true);
     try {
-      await callWs({ type: "livebox/system/led/set", led, brightness: level });
+      await runAction(
+        { type: "livebox/system/led/set", led, brightness: level },
+        { success: `${label} réglée à ${level}%.` },
+      );
       onSaved();
     } finally {
       setSaving(false);
@@ -62,39 +65,46 @@ function ToggleButton({ label, value, onToggle }) {
 
 export function SystemTab() {
   const { data, loading, error, refresh } = useWsData("livebox/system");
-  const callWs = useWsCommand();
-  const [actionMsg, setActionMsg] = useState(null);
+  const runAction = useWsAction();
 
   const handleShowWifiPassword = async (enabled) => {
-    await callWs({ type: "livebox/system/show_wifi_password/set", enabled });
+    await runAction(
+      { type: "livebox/system/show_wifi_password/set", enabled },
+      { success: enabled ? "Affichage du mot de passe Wifi activé." : "Affichage du mot de passe Wifi désactivé." },
+    );
     refresh();
   };
 
   const handleAutoBackup = async (enabled) => {
-    await callWs({ type: "livebox/system/backup/auto/set", enabled });
+    await runAction(
+      { type: "livebox/system/backup/auto/set", enabled },
+      { success: enabled ? "Sauvegarde automatique activée." : "Sauvegarde automatique désactivée." },
+    );
     refresh();
   };
 
   const handleBackupNow = async () => {
-    setActionMsg(null);
     try {
-      await callWs({ type: "livebox/system/backup/run" });
-      setActionMsg("Sauvegarde demandée.");
+      await runAction(
+        { type: "livebox/system/backup/run" },
+        { success: "Sauvegarde demandée." },
+      );
       refresh();
-    } catch (err) {
-      setActionMsg(`Erreur : ${String(err.message ?? err)}`);
+    } catch {
+      // toast déjà affiché par runAction
     }
   };
 
   const handleRestore = async () => {
     if (!window.confirm("Restaurer la configuration depuis la dernière sauvegarde ? La Livebox va redémarrer.")) return;
-    setActionMsg(null);
     try {
-      await callWs({ type: "livebox/system/restore/run" });
-      setActionMsg("Restauration demandée — la Livebox va redémarrer.");
+      await runAction(
+        { type: "livebox/system/restore/run" },
+        { success: "Restauration demandée — la Livebox va redémarrer." },
+      );
       refresh();
-    } catch (err) {
-      setActionMsg(`Erreur : ${String(err.message ?? err)}`);
+    } catch {
+      // toast déjà affiché par runAction
     }
   };
 
@@ -147,7 +157,6 @@ export function SystemTab() {
                 Restaurer la dernière sauvegarde
               </button>
             </div>
-            {actionMsg && <p className="text-xs lb-text-muted">{actionMsg}</p>}
           </div>
         )}
       </Card>

@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
-import { useWsCommand } from "../lib/hass-context.jsx";
+import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 const PROTOCOLS = ["TCP", "UDP", "TCP/UDP"];
 
 function AddRuleForm({ onSaved }) {
-  const callWs = useWsCommand();
+  const runAction = useWsAction();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", protocol: "TCP", external_port: "", internal_port: "", destination_ip: "" });
   const [saving, setSaving] = useState(false);
@@ -19,7 +19,10 @@ function AddRuleForm({ onSaved }) {
     setSaving(true);
     setError(null);
     try {
-      await callWs({ type: "livebox/nat/add", ...form });
+      await runAction(
+        { type: "livebox/nat/add", ...form },
+        { success: `Règle « ${form.name} » ajoutée.` },
+      );
       setForm({ name: "", protocol: "TCP", external_port: "", internal_port: "", destination_ip: "" });
       setOpen(false);
       onSaved();
@@ -78,13 +81,16 @@ function AddRuleForm({ onSaved }) {
 
 export function NatTab() {
   const { data, loading, error, refresh } = useWsData("livebox/nat");
-  const callWs = useWsCommand();
+  const runAction = useWsAction();
   const [deleteError, setDeleteError] = useState(null);
 
-  const handleDelete = async (ruleId) => {
+  const handleDelete = async (ruleId, ruleName) => {
     setDeleteError(null);
     try {
-      await callWs({ type: "livebox/nat/delete", rule_id: ruleId });
+      await runAction(
+        { type: "livebox/nat/delete", rule_id: ruleId },
+        { success: `Règle « ${ruleName ?? ruleId} » supprimée.` },
+      );
       refresh();
     } catch (err) {
       setDeleteError(err);
@@ -122,7 +128,7 @@ export function NatTab() {
                     <td className="py-1.5 pr-3 lb-text-muted">{rule.protocol || "—"}</td>
                     <td className="py-1.5 text-right">
                       <button
-                        onClick={() => handleDelete(rule.id)}
+                        onClick={() => handleDelete(rule.id, rule.name)}
                         className="rounded-md border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
                       >
                         Supprimer

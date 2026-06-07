@@ -1,5 +1,5 @@
 import { useWsData } from "../lib/use-ws-data.js";
-import { useWsCommand } from "../lib/hass-context.jsx";
+import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 function Row({ label, value }) {
@@ -14,15 +14,21 @@ function Row({ label, value }) {
 export function AdvancedTab() {
   const { data, loading, error, refresh } = useWsData("livebox/advanced");
   const { data: rebootHistory } = useWsData("livebox/reboot_history");
-  const callWs = useWsCommand();
+  const runAction = useWsAction();
   const { dns, ddns, dmz, upnp, ipv6 } = data ?? {};
 
-  const handleUpnpToggle = async (id, enabled) => {
-    await callWs({ type: "livebox/upnp_toggle", id, enabled });
+  const handleUpnpToggle = async (enabled) => {
+    await runAction(
+      { type: "livebox/upnp/toggle", enabled },
+      { success: enabled ? "UPnP activé." : "UPnP désactivé." },
+    );
     refresh();
   };
-  const handleUpnpDelete = async (id) => {
-    await callWs({ type: "livebox/upnp_delete", id });
+  const handleUpnpDelete = async (ruleId) => {
+    await runAction(
+      { type: "livebox/upnp/delete", rule_id: ruleId },
+      { success: "Règle UPnP supprimée." },
+    );
     refresh();
   };
 
@@ -72,21 +78,24 @@ export function AdvancedTab() {
       <Card title="UPnP">
         {upnp && (
           <>
-            <Row label="Activé" value={upnp.enabled ? "Oui" : "Non"} />
+            <div className="flex items-center justify-between border-b lb-border py-1 text-sm">
+              <span className="lb-text-muted">Activé</span>
+              <span className="flex items-center gap-2">
+                <span className="font-medium lb-text">{upnp.enabled ? "Oui" : "Non"}</span>
+                <button onClick={() => handleUpnpToggle(!upnp.enabled)} className="lb-link text-xs hover:underline">
+                  {upnp.enabled ? "Désactiver" : "Activer"}
+                </button>
+              </span>
+            </div>
             {upnp.rules.length === 0
               ? <p className="mt-2 text-sm lb-text-muted">Aucune règle UPnP.</p>
               : <ul className="mt-2 space-y-1 text-sm">
                   {upnp.rules.map((r) => (
                     <li key={r.id} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
-                      <span>{r.description ?? r.id}</span>
-                      <span className="flex gap-2">
-                        <button onClick={() => handleUpnpToggle(r.id, !r.enabled)} className="lb-link text-xs hover:underline">
-                          {r.enabled ? "Désactiver" : "Activer"}
-                        </button>
-                        <button onClick={() => handleUpnpDelete(r.id)} className="text-xs text-red-600 hover:underline">
-                          Supprimer
-                        </button>
-                      </span>
+                      <span>{r.name ?? r.id}</span>
+                      <button onClick={() => handleUpnpDelete(r.id)} className="text-xs text-red-600 hover:underline">
+                        Supprimer
+                      </button>
                     </li>
                   ))}
                 </ul>}

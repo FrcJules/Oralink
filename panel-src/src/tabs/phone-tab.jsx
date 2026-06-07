@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
-import { useWsCommand } from "../lib/hass-context.jsx";
+import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 function AddContactForm({ onSaved }) {
-  const callWs = useWsCommand();
+  const runAction = useWsAction();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", first_name: "", cell: "", home: "", work: "" });
   const [saving, setSaving] = useState(false);
@@ -17,7 +17,10 @@ function AddContactForm({ onSaved }) {
     setSaving(true);
     setError(null);
     try {
-      await callWs({ type: "livebox/phone/contacts/add", ...form });
+      await runAction(
+        { type: "livebox/phone/contacts/add", ...form },
+        { success: `Contact « ${form.name} » ajouté.` },
+      );
       setForm({ name: "", first_name: "", cell: "", home: "", work: "" });
       setOpen(false);
       onSaved();
@@ -79,12 +82,15 @@ const STATUS_LABEL = { missed: "Manqué", incoming: "Entrant", outgoing: "Sortan
 
 export function PhoneTab() {
   const { data, loading, error, refresh } = useWsData("livebox/phone");
-  const callWs = useWsCommand();
+  const runAction = useWsAction();
   const { callers = [], contacts = [] } = data ?? {};
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, name) => {
     if (!window.confirm("Supprimer ce contact du carnet de la Livebox ?")) return;
-    await callWs({ type: "livebox/phone/contacts/delete", unique_id: id });
+    await runAction(
+      { type: "livebox/phone/contacts/delete", unique_id: id },
+      { success: `Contact « ${name ?? id} » supprimé.` },
+    );
     refresh();
   };
 
@@ -120,7 +126,7 @@ export function PhoneTab() {
                       <span className="font-medium lb-text">{c.name}</span>
                       <span className="ml-2 text-xs lb-text-muted">{[c.cell, c.home, c.work].filter(Boolean).join(" · ")}</span>
                     </span>
-                    <button onClick={() => handleDelete(c.id)} className="text-xs text-red-600 hover:underline">
+                    <button onClick={() => handleDelete(c.id, c.name)} className="text-xs text-red-600 hover:underline">
                       Supprimer
                     </button>
                   </li>
