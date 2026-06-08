@@ -103,10 +103,25 @@ manquantes côté panel Oralink, par ordre de priorité suggéré :
    (`coordinator.api.phonebook.*` — lecture via `coordinator.async_get_contacts`
    exposée dans `coordinator.data["contacts"]`, ajout/suppression via les
    commandes WS `livebox/phone/contacts/add|delete`).
-7. **Décodeurs TV Orange** (`LmTvDecoderTab`) — toujours en
-   "Bientôt disponible" (`coming-soon-tab.jsx`) : nécessite de découvrir
-   l'adresse IP locale du décodeur et de lui parler en HTTP direct (pas
-   d'API sysbus), donc une approche assez différente du reste du panel.
+7. ✅ **Décodeurs TV Orange** (`LmTvDecoderTab`) — onglet **"Décodeurs TV"** :
+   le décodeur ne passe pas par l'API sysbus, il faut lui parler en HTTP
+   direct sur son IP locale (`tv_decoder_api.py`, port 8080,
+   `/remoteControl/cmd?operation=...`). Configuration manuelle de l'IP ou
+   découverte parmi les appareils actifs déjà connus du réseau (probing
+   concurrent), persistée par `tv_decoder_store.py` ; statut en direct et
+   télécommande virtuelle (touches mappées sur les codes du décodeur), via
+   les commandes WS `livebox/tvdecoders*`.
+
+La **topologie réseau** (onglet "Topologie") a été reconstruite pour
+retrouver le rendu et les fonctionnalités de l'ancien panel React
+(`livebox-V1`, bibliothèque `@xyflow/react`) : disposition en grille par
+interface (5 colonnes max), fond pointillé, mêmes icônes par type d'appareil,
+et **switchs personnalisés** + **rattachement forcé d'un appareil à un
+relais** ("parent override"). Contrairement à `livebox-V1` (où tout — y
+compris les switchs et rattachements — était purement `localStorage` côté
+navigateur), Oralink persiste tout côté serveur dans `TopologyStore`
+(`livebox/topology/{positions,switches,parents}*`), donc partagé entre tous
+les onglets/utilisateurs et indépendant du navigateur.
 
 Pour chaque ajout, le pattern à suivre est celui des onglets existants : une
 ou plusieurs commandes `ws_get_*`/`ws_*_set` dans `panel.py` (suivant le
