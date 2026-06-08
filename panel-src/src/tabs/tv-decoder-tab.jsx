@@ -205,19 +205,26 @@ function DecoderCard({ decoder, onRemove, onSendKey }) {
   };
 
   return (
-    <div className="rounded-lg border lb-border p-3">
-      <div className="mb-2 flex items-center justify-between">
+    <div className="rounded-2xl border lb-border p-4">
+      <div className="mb-4 flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-medium lb-text">📺 {decoder.name}</p>
+          <p className="font-semibold lb-text">📺 {decoder.name}</p>
           <p className="text-xs lb-text-muted">
-            {decoder.ip} · {decoder.online ? <span className="text-emerald-600">en ligne</span> : <span className="lb-text-muted">injoignable</span>}
+            {decoder.ip}
+            <span className="mx-1.5">·</span>
+            {decoder.online
+              ? <span className="font-medium text-emerald-600">En ligne</span>
+              : <span>Injoignable</span>}
           </p>
+          <p className="mt-1 text-sm lb-text-muted">{statusLabel(decoder.status)}</p>
         </div>
-        <button onClick={() => onRemove(decoder.mac, decoder.name)} className="rounded-md border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50">
+        <button
+          onClick={() => onRemove(decoder.mac, decoder.name)}
+          className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50"
+        >
           Supprimer
         </button>
       </div>
-      <p className="mb-3 text-sm lb-text">{statusLabel(decoder.status)}</p>
       <RemoteControl disabled={!decoder.online || sendingKey !== null} onKey={handleKey} />
     </div>
   );

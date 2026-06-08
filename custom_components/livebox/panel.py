@@ -147,10 +147,31 @@ def ws_get_dhcp(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     data = coordinator.data
+    # MAC → nom connu, pour remplir les baux statiques qui n'ont pas de nom
+    # côté Livebox (DHCPv4.getLeases ne retourne pas le FriendlyName pour eux).
+    mac_to_name: dict[str, str] = {
+        mac.lower(): d.get("Name", "")
+        for mac, d in data.get("devices", {}).items()
+        if d.get("Name")
+    }
+
+    def _normalize_with_fallback(lease: dict) -> dict:
+        name = lease.get("Name") or ""
+        mac = (lease.get("Mac Address") or "").lower()
+        if not name and mac:
+            name = mac_to_name.get(mac, "")
+        return {
+            "name": name,
+            "ip": lease.get("IP Address") or "",
+            "mac": lease.get("Mac Address") or "",
+            "reserved": lease.get("Reserved", False),
+            "active": lease.get("Enable", False),
+        }
+
     connection.send_result(msg["id"], {
         "active": [_normalize_lease(l) for l in data.get("dhcp_leases", [])],
         "guest": [_normalize_lease(l) for l in data.get("guest_dhcp_leases", [])],
-        "static": [_normalize_lease(l) for l in data.get("dhcp_static_leases", [])],
+        "static": [_normalize_with_fallback(l) for l in data.get("dhcp_static_leases", [])],
     })
 
 
@@ -650,13 +671,15 @@ async def ws_upnp_toggle(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        # Appel direct (sans passer par _make_request, qui avale les
-        # AiosysbusException et renvoie {} silencieusement) pour que les
-        # vrais échecs remontent au bloc except ci-dessous au lieu de
-        # toujours rapporter un succès à l'utilisateur.
         await coordinator.api.upnpigd.async_set({"Enable": msg["enabled"]})
-        await coordinator.async_request_refresh()
-        connection.send_result(msg["id"], {"status": "ok"})
+        # Relire l'état confirmé immédiatement après le set (sans attendre
+        # le cycle coordinator) pour que le frontend puisse se mettre à jour
+        # sans dépendre du timing de async_request_refresh.
+        confirmed = (await coordinator.api.upnpigd.async_get()).get("status", {}).get(
+            "Enable", msg["enabled"]
+        )
+        hass.async_create_task(coordinator.async_request_refresh())
+        connection.send_result(msg["id"], {"enabled": confirmed})
     except Exception as err:
         connection.send_error(msg["id"], "upnp_toggle_failed", str(err))
 

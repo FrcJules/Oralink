@@ -561,18 +561,34 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self, device_traffic: dict[str, Any], wan_counters: dict[str, Any]
     ) -> None:
         """Append an aggregate traffic sample for the "Graphiques" tab."""
+        # Débit agrégé par appareil (fonctionne uniquement si HomeLan.getDevicesResults
+        # retourne des données — souvent vide sur Livebox 6 SG60).
         rate_rx = round(sum(t.get("rate_rx", 0) for t in device_traffic.values()), 3)
         rate_tx = round(sum(t.get("rate_tx", 0) for t in device_traffic.values()), 3)
+
+        # Débit WAN calculé depuis le différentiel des compteurs cumulés — fiable
+        # même quand getDevicesResults ne renvoie rien.
+        wan_rx = wan_counters.get("BytesReceived") if isinstance(wan_counters, dict) else None
+        wan_tx = wan_counters.get("BytesSent") if isinstance(wan_counters, dict) else None
+        wan_rate_rx = 0.0
+        wan_rate_tx = 0.0
+        if wan_rx is not None and self._traffic_history:
+            prev = self._traffic_history[-1]
+            prev_rx = prev.get("wan_rx_bytes") or 0
+            prev_tx = prev.get("wan_tx_bytes") or 0
+            # Bytes delta over the coordinator interval (60 s) → Mbit/s
+            wan_rate_rx = round(max(0, wan_rx - prev_rx) / 60 * 8 / 1_000_000, 3)
+            wan_rate_tx = round(max(0, wan_tx - prev_tx) / 60 * 8 / 1_000_000, 3)
+
         self._traffic_history.append({
             "time": str(datetime.now(tz=DEFAULT_TIME_ZONE)),
             "rate_rx": rate_rx,
             "rate_tx": rate_tx,
-            "wan_rx_bytes": wan_counters.get("BytesReceived") if isinstance(wan_counters, dict) else None,
-            "wan_tx_bytes": wan_counters.get("BytesSent") if isinstance(wan_counters, dict) else None,
+            "wan_rate_rx": wan_rate_rx,
+            "wan_rate_tx": wan_rate_tx,
+            "wan_rx_bytes": wan_rx,
+            "wan_tx_bytes": wan_tx,
         })
-        # Persisté pour survivre aux redémarrages/rechargements — sinon le
-        # graphe reste perpétuellement "en cours de constitution" pour qui
-        # redémarre Home Assistant régulièrement (cf. retour utilisateur).
         await self.traffic_history_store.async_save(list(self._traffic_history))
 
     @property

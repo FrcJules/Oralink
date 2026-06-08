@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -36,6 +36,13 @@ function Rate({ value, className, style }) {
 export function DevicesTab() {
   const { data, loading, error, refresh } = useWsData("livebox/devices");
   const [sort, setSort] = useState({ key: "name", direction: "asc" });
+
+  // Rafraîchissement automatique toutes les 30 s pour refléter les débits
+  // mis à jour à chaque cycle coordinator (~1 min).
+  useEffect(() => {
+    const id = setInterval(refresh, 30_000);
+    return () => clearInterval(id);
+  }, [refresh]);
 
   const handleSort = (key) => {
     setSort((s) => (s.key === key

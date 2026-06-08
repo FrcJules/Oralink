@@ -58,9 +58,13 @@ export function NetworkTab() {
       </Card>
 
       <Card title="Interfaces">
-        {interfaces?.map((iface) => (
-          <Row key={iface.name} label={iface.name} value={`↓ ${iface.rate_rx} / ↑ ${iface.rate_tx}`} />
-        ))}
+        {interfaces && (
+          interfaces.length === 0
+            ? <p className="text-sm lb-text-muted">Aucune interface remontée (HomeLan.getInterfacesNames non supporté sur ce firmware).</p>
+            : interfaces.map((iface) => (
+                <Row key={iface.name} label={iface.name} value={`↓ ${iface.rate_rx} Mb/s / ↑ ${iface.rate_tx} Mb/s`} />
+              ))
+        )}
       </Card>
     </div>
   );

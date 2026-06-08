@@ -9,12 +9,6 @@ function timeLabel(value) {
   return m ? `${m[1]}:${m[2]}` : String(value);
 }
 
-/**
- * Mesure la taille du conteneur via ResizeObserver et passe des dimensions
- * numériques fixes au graphe. Évite `ResponsiveContainer` de recharts (v3),
- * qui déclenche une boucle de mises à jour infinie ("Maximum update depth
- * exceeded" / erreur React #185) dans certaines mises en page.
- */
 function useElementSize() {
   const ref = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -37,16 +31,18 @@ export function GraphsTab() {
   const { data, loading, error, refresh } = useWsData("livebox/graphs");
   const [containerRef, { width, height }] = useElementSize();
 
-  // L'historique grandit en continu côté serveur (~1 point/min) ; sans
-  // rafraîchissement périodique le graphe resterait figé sur l'instantané
-  // chargé à l'ouverture de l'onglet (et bloqué sur le message "en cours de
-  // constitution" si on l'ouvre juste après un redémarrage de Home Assistant).
   useEffect(() => {
     const id = setInterval(refresh, 60_000);
     return () => clearInterval(id);
   }, [refresh]);
 
   const points = (data ?? []).map((p) => ({ ...p, label: timeLabel(p.time) }));
+
+  // Déterminer si les débits WAN différentiels sont disponibles et non-nuls —
+  // ils sont calculés depuis les compteurs cumulés BytesReceived/BytesSent et
+  // sont fiables même quand HomeLan.getDevicesResults ne retourne rien.
+  const hasWan = points.some((p) => (p.wan_rate_rx ?? 0) > 0 || (p.wan_rate_tx ?? 0) > 0);
+  const hasDevice = points.some((p) => (p.rate_rx ?? 0) > 0 || (p.rate_tx ?? 0) > 0);
 
   return (
     <Card title="Graphiques de trafic — débit agrégé (Mbit/s)">
@@ -65,16 +61,28 @@ export function GraphsTab() {
                   <YAxis tick={{ fontSize: 11 }} unit=" Mb/s" width={70} />
                   <Tooltip formatter={(value) => `${value} Mbit/s`} />
                   <Legend />
-                  <Line type="monotone" dataKey="rate_rx" name="Réception" stroke="#2563eb" dot={false} strokeWidth={2} />
-                  <Line type="monotone" dataKey="rate_tx" name="Émission" stroke="#16a34a" dot={false} strokeWidth={2} />
+                  {hasWan && (
+                    <>
+                      <Line type="monotone" dataKey="wan_rate_rx" name="WAN ↓" stroke="#2563eb" dot={false} strokeWidth={2} />
+                      <Line type="monotone" dataKey="wan_rate_tx" name="WAN ↑" stroke="#16a34a" dot={false} strokeWidth={2} />
+                    </>
+                  )}
+                  {hasDevice && (
+                    <>
+                      <Line type="monotone" dataKey="rate_rx" name="Appareils ↓" stroke="#7c3aed" dot={false} strokeWidth={1.5} strokeDasharray="4 2" />
+                      <Line type="monotone" dataKey="rate_tx" name="Appareils ↑" stroke="#db2777" dot={false} strokeWidth={1.5} strokeDasharray="4 2" />
+                    </>
+                  )}
+                  {!hasWan && !hasDevice && (
+                    <Line type="monotone" dataKey="rate_rx" name="Réception" stroke="#2563eb" dot={false} strokeWidth={2} />
+                  )}
                 </LineChart>
               )}
             </div>
       )}
       <p className="mt-3 text-xs lb-text-muted">
-        Somme des débits instantanés de tous les appareils connectés, échantillonnée à
-        chaque cycle de rafraîchissement (~1 minute) et conservée en mémoire (~12h).
-        L'historique est réinitialisé au redémarrage de Home Assistant.
+        Débit WAN calculé depuis les compteurs cumulés de la box (BytesReceived/BytesSent),
+        échantillonné à chaque cycle (~1 min) et conservé en mémoire (~12h, persisté au redémarrage).
       </p>
     </Card>
   );

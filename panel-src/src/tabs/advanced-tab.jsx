@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -17,12 +18,22 @@ export function AdvancedTab() {
   const runAction = useWsAction();
   const { dns, ddns, dmz, upnp, ipv6 } = data ?? {};
 
+  // État optimiste pour UPnP — mis à jour depuis le résultat du toggle (qui
+  // relit UPnP-IGD:get juste après le set) sans attendre le cycle coordinator.
+  const [upnpOverride, setUpnpOverride] = useState(null);
+  const upnpEnabled = upnpOverride ?? upnp?.enabled ?? false;
+
   const handleUpnpToggle = async (enabled) => {
-    await runAction(
-      { type: "livebox/upnp/toggle", enabled },
-      { success: enabled ? "UPnP activé." : "UPnP désactivé." },
-    );
-    refresh();
+    setUpnpOverride(enabled);
+    try {
+      const result = await runAction(
+        { type: "livebox/upnp/toggle", enabled },
+        { success: enabled ? "UPnP activé." : "UPnP désactivé." },
+      );
+      setUpnpOverride(result?.enabled ?? enabled);
+    } catch {
+      setUpnpOverride(null);
+    }
   };
   const handleUpnpDelete = async (ruleId) => {
     await runAction(
@@ -81,9 +92,9 @@ export function AdvancedTab() {
             <div className="flex items-center justify-between border-b lb-border py-1 text-sm">
               <span className="lb-text-muted">Activé</span>
               <span className="flex items-center gap-2">
-                <span className="font-medium lb-text">{upnp.enabled ? "Oui" : "Non"}</span>
-                <button onClick={() => handleUpnpToggle(!upnp.enabled)} className="lb-link text-xs hover:underline">
-                  {upnp.enabled ? "Désactiver" : "Activer"}
+                <span className="font-medium lb-text">{upnpEnabled ? "Oui" : "Non"}</span>
+                <button onClick={() => handleUpnpToggle(!upnpEnabled)} className="lb-link text-xs hover:underline">
+                  {upnpEnabled ? "Désactiver" : "Activer"}
                 </button>
               </span>
             </div>
