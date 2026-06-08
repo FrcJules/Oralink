@@ -16,6 +16,9 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_nat)
     websocket_api.async_register_command(hass, ws_get_network)
     websocket_api.async_register_command(hass, ws_get_topology)
+    websocket_api.async_register_command(hass, ws_get_topology_positions)
+    websocket_api.async_register_command(hass, ws_set_topology_position)
+    websocket_api.async_register_command(hass, ws_reset_topology_positions)
     websocket_api.async_register_command(hass, ws_get_advanced)
     websocket_api.async_register_command(hass, ws_refresh)
     # NAT mutations
@@ -208,6 +211,43 @@ def ws_get_topology(hass, connection, msg):
         "repeaters": [{"key": k, "name": v} for k, v in data.get("topology_repeaters", {}).items()],
         "device_map": [{"device": k, "via": v} for k, v in data.get("topology_via_device", {}).items()],
     })
+
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/topology/positions"})
+def ws_get_topology_positions(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], coordinator.topology_store.data)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/topology/positions/set",
+    vol.Required("node_id"): str,
+    vol.Required("x"): vol.Coerce(float),
+    vol.Required("y"): vol.Coerce(float),
+})
+@websocket_api.async_response
+async def ws_set_topology_position(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    await coordinator.topology_store.async_set(msg["node_id"], msg["x"], msg["y"])
+    connection.send_result(msg["id"])
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/topology/positions/reset"})
+@websocket_api.async_response
+async def ws_reset_topology_positions(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    await coordinator.topology_store.async_reset()
+    connection.send_result(msg["id"])
 
 
 # ── Refresh ───────────────────────────────────────────────────────────────────

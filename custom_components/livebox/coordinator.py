@@ -30,6 +30,7 @@ from .const import (
 )
 from .helpers import find_item
 from .repeater_store import RepeaterStore
+from .topology_store import TopologyStore
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(minutes=1)
@@ -62,6 +63,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self._event_log: deque[dict[str, Any]] = deque(maxlen=300)
 
         self.repeater_store = RepeaterStore(hass, config_entry.entry_id)
+        self.topology_store = TopologyStore(hass, config_entry.entry_id)
 
     async def _async_setup(self) -> None:
         """Coordinator setup."""
@@ -74,6 +76,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             use_tls=self.config_entry.data.get(CONF_USE_TLS, False),
         )
         await self.repeater_store.async_load()
+        await self.topology_store.async_load()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data."""

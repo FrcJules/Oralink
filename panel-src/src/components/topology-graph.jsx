@@ -1,5 +1,8 @@
 import { useEffect, useRef } from "react";
 import cytoscape from "cytoscape";
+import { useWsData } from "../lib/use-ws-data.js";
+import { useWsCommand } from "../lib/hass-context.jsx";
+import { useWsAction } from "../lib/use-ws-action.js";
 
 const WIRED_PREFIXES = ["eth", "ETH"];
 
@@ -113,33 +116,57 @@ function cytoscapeStyle() {
   ];
 }
 
+function layoutFor(positions) {
+  if (positions && Object.keys(positions).length) {
+    return {
+      name: "preset",
+      positions: (n) => positions[n.id()] || undefined,
+      fit: true,
+      padding: 40,
+    };
+  }
+  return { name: "breadthfirst", directed: true, padding: 40, spacingFactor: 1.25, fit: true, avoidOverlap: true, roots: "#internet" };
+}
+
 /**
  * Graphe interactif de la topologie réseau (Cytoscape) — pan/zoom/glisser des
- * nœuds, ajustement automatique, export PNG. Reconstruit à chaque changement
- * de données (pas de persistance des positions, contrairement à l'ancienne
- * version qui s'appuyait sur un store dédié côté frontend).
+ * nœuds (positions mémorisées côté serveur via `livebox/topology/positions`,
+ * comme l'ancienne version), ajustement automatique, export PNG. Reconstruit à
+ * chaque changement de données ou de positions enregistrées.
  */
 export function TopologyGraph({ devices, network, topology }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
+  const callWs = useWsCommand();
+  const runAction = useWsAction();
+  const { data: positions, refresh: refreshPositions } = useWsData("livebox/topology/positions");
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || positions == null) return;
+    const elements = buildElements(devices, network, topology);
+    for (const el of elements) {
+      const pos = positions[el.data?.id];
+      if (pos) el.position = { x: pos.x, y: pos.y };
+    }
     const cy = cytoscape({
       container: containerRef.current,
-      elements: buildElements(devices, network, topology),
+      elements,
       style: cytoscapeStyle(),
-      layout: { name: "breadthfirst", directed: true, padding: 40, spacingFactor: 1.25, fit: true, avoidOverlap: true, roots: "#internet" },
-      wheelSensitivity: 0.2,
+      layout: layoutFor(positions),
       minZoom: 0.2,
       maxZoom: 3,
+    });
+    cy.on("dragfree", "node", (evt) => {
+      const node = evt.target;
+      const { x, y } = node.position();
+      callWs({ type: "livebox/topology/positions/set", node_id: node.id(), x, y }).catch(() => {});
     });
     cyRef.current = cy;
     return () => {
       cy.destroy();
       cyRef.current = null;
     };
-  }, [devices, network, topology]);
+  }, [devices, network, topology, positions, callWs]);
 
   const handleFit = () => {
     cyRef.current?.animate({ fit: { eles: cyRef.current.elements(), padding: 40 }, duration: 350 });
@@ -153,23 +180,33 @@ export function TopologyGraph({ devices, network, topology }) {
     a.click();
   };
 
+  const handleResetPositions = async () => {
+    if (!window.confirm("Réinitialiser la disposition du graphe et oublier les positions enregistrées ?")) return;
+    await runAction(
+      { type: "livebox/topology/positions/reset" },
+      { success: "Disposition du graphe réinitialisée." },
+    );
+    refreshPositions();
+  };
+
   return (
     <div className="lb-card">
       <div className="lb-card-header">
         <span className="lb-card-title">Topologie réseau</span>
         <div className="ml-auto flex items-center gap-2">
           <button onClick={handleFit} className="lb-btn-outline px-2.5 py-1 text-xs">⊞ Ajuster</button>
+          <button onClick={handleResetPositions} className="lb-btn-outline px-2.5 py-1 text-xs">↺ Réinitialiser disposition</button>
           <button onClick={handleExport} className="lb-btn-outline px-2.5 py-1 text-xs">⤓ Exporter PNG</button>
         </div>
       </div>
-      <div ref={containerRef} className="h-[480px] w-full rounded-b-xl bg-[var(--secondary-background-color)]" />
+      <div ref={containerRef} className="relative h-[480px] w-full rounded-b-xl bg-[var(--secondary-background-color)]" />
       <div className="flex flex-wrap gap-4 border-t lb-border px-4 py-2 text-xs lb-text-muted">
         <span>🌐 Internet</span>
         <span>📡 Livebox / Répéteur</span>
         <span>🔌 Port filaire</span>
         <span>📶 Wifi</span>
         <span>💻 Appareil</span>
-        <span>· Glisser pour repositionner · Molette pour zoomer</span>
+        <span>· Glisser un nœud pour le repositionner (mémorisé) · Molette pour zoomer</span>
       </div>
     </div>
   );
