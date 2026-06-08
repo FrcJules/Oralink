@@ -11,7 +11,7 @@ import { SystemTab } from "./tabs/system-tab.jsx";
 import { PhoneTab } from "./tabs/phone-tab.jsx";
 import { GraphsTab } from "./tabs/graphs-tab.jsx";
 import { EventsTab } from "./tabs/events-tab.jsx";
-import { ComingSoonTab } from "./tabs/coming-soon-tab.jsx";
+import { TvDecoderTab } from "./tabs/tv-decoder-tab.jsx";
 
 const TABS = [
   { id: "devices", label: "Appareils", render: () => <DevicesTab /> },
@@ -25,11 +25,7 @@ const TABS = [
   { id: "phone", label: "Téléphone", render: () => <PhoneTab /> },
   { id: "system", label: "Système", render: () => <SystemTab /> },
   { id: "advanced", label: "Avancé", render: () => <AdvancedTab /> },
-  {
-    id: "tv",
-    label: "Décodeurs TV",
-    render: () => <ComingSoonTab title="Décodeurs TV Orange" description="Chaînes, télécommande virtuelle, infos décodeur" />,
-  },
+  { id: "tv", label: "Décodeurs TV", render: () => <TvDecoderTab /> },
 ];
 
 export default function App() {

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+from uuid import uuid4
+
 import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from . import tv_decoder_api
 from .const import DOMAIN
 
 
@@ -19,6 +24,11 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_topology_positions)
     websocket_api.async_register_command(hass, ws_set_topology_position)
     websocket_api.async_register_command(hass, ws_reset_topology_positions)
+    websocket_api.async_register_command(hass, ws_get_topology_switches)
+    websocket_api.async_register_command(hass, ws_set_topology_switch)
+    websocket_api.async_register_command(hass, ws_remove_topology_switch)
+    websocket_api.async_register_command(hass, ws_get_topology_parents)
+    websocket_api.async_register_command(hass, ws_set_topology_parent)
     websocket_api.async_register_command(hass, ws_get_advanced)
     websocket_api.async_register_command(hass, ws_refresh)
     # NAT mutations
@@ -66,6 +76,12 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_graphs)
     # Journal d'événements (connexions/déconnexions)
     websocket_api.async_register_command(hass, ws_get_events)
+    # Décodeurs TV Orange (pilotage HTTP direct)
+    websocket_api.async_register_command(hass, ws_get_tv_decoders)
+    websocket_api.async_register_command(hass, ws_set_tv_decoder)
+    websocket_api.async_register_command(hass, ws_remove_tv_decoder)
+    websocket_api.async_register_command(hass, ws_discover_tv_decoders)
+    websocket_api.async_register_command(hass, ws_tv_decoder_key)
 
 
 def _get_coordinator(hass: HomeAssistant):
@@ -220,7 +236,7 @@ def ws_get_topology_positions(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    connection.send_result(msg["id"], coordinator.topology_store.data)
+    connection.send_result(msg["id"], coordinator.topology_store.positions)
 
 
 @websocket_api.websocket_command({
@@ -235,7 +251,7 @@ async def ws_set_topology_position(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    await coordinator.topology_store.async_set(msg["node_id"], msg["x"], msg["y"])
+    await coordinator.topology_store.async_set_position(msg["node_id"], msg["x"], msg["y"])
     connection.send_result(msg["id"])
 
 
@@ -246,7 +262,76 @@ async def ws_reset_topology_positions(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    await coordinator.topology_store.async_reset()
+    await coordinator.topology_store.async_reset_positions()
+    connection.send_result(msg["id"])
+
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/topology/switches"})
+def ws_get_topology_switches(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], coordinator.topology_store.switches)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/topology/switches/set",
+    vol.Optional("switch_id"): str,
+    vol.Required("name"): str,
+    vol.Optional("parent"): vol.Any(str, None),
+    vol.Required("devices"): [str],
+})
+@websocket_api.async_response
+async def ws_set_topology_switch(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    switch_id = msg.get("switch_id") or f"custom-switch-{uuid4().hex[:10]}"
+    await coordinator.topology_store.async_set_switch(
+        switch_id, name=msg["name"], parent=msg.get("parent") or None, devices=msg["devices"]
+    )
+    connection.send_result(msg["id"], {"switch_id": switch_id})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/topology/switches/remove",
+    vol.Required("switch_id"): str,
+})
+@websocket_api.async_response
+async def ws_remove_topology_switch(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    await coordinator.topology_store.async_remove_switch(msg["switch_id"])
+    connection.send_result(msg["id"])
+
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/topology/parents"})
+def ws_get_topology_parents(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], coordinator.topology_store.parent_overrides)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/topology/parent/set",
+    vol.Required("mac"): str,
+    vol.Optional("parent"): vol.Any(str, None),
+})
+@websocket_api.async_response
+async def ws_set_topology_parent(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    await coordinator.topology_store.async_set_parent(msg["mac"], msg.get("parent") or None)
     connection.send_result(msg["id"])
 
 
@@ -1065,3 +1150,140 @@ def ws_get_events(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     connection.send_result(msg["id"], coordinator.event_log)
+
+
+# ── Décodeurs TV Orange (pilotage HTTP direct, hors API sysbus) ─────────────
+#
+# Le décodeur n'apparaît dans aucune API Livebox : on ne connaît son IP que si
+# l'utilisateur la saisit, ou si on la retrouve en sondant les appareils LAN
+# actifs déjà connus du coordinator (cf. `ws_discover_tv_decoders`).
+
+TV_DECODER_STATUS_TIMEOUT = 3
+
+
+async def _probe_tv_decoder(session, mac, name, ip):
+    """Sonde un décodeur connu et renvoie sa fiche enrichie de son statut courant."""
+    entry = {"mac": mac, "name": name, "ip": ip, "online": False, "status": None}
+    try:
+        data = await tv_decoder_api.async_get_status(session, ip)
+        entry["online"] = True
+        entry["status"] = {
+            "channel": data.get("osdContext"),
+            "media_type": data.get("playedMediaType"),
+            "media_state": data.get("playedMediaState"),
+        }
+    except tv_decoder_api.TvDecoderError:
+        pass
+    return entry
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/tvdecoders"})
+@websocket_api.async_response
+async def ws_get_tv_decoders(hass, connection, msg):
+    """Liste les décodeurs TV configurés, avec leur statut courant (sondage HTTP)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    session = async_get_clientsession(hass)
+    decoders = coordinator.tv_decoder_store.data
+    results = await asyncio.gather(*(
+        _probe_tv_decoder(session, mac, entry.get("name", mac), entry.get("ip", ""))
+        for mac, entry in decoders.items()
+    ))
+    connection.send_result(msg["id"], results)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/tvdecoders/set",
+    vol.Required("mac"): str,
+    vol.Required("name"): str,
+    vol.Required("ip"): str,
+})
+@websocket_api.async_response
+async def ws_set_tv_decoder(hass, connection, msg):
+    """Ajoute ou met à jour un décodeur TV (nom + IP, persistés en JSON)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.tv_decoder_store.async_set(
+            msg["mac"], name=msg["name"].strip(), ip=msg["ip"].strip()
+        )
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "tv_decoder_set_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/tvdecoders/remove",
+    vol.Required("mac"): str,
+})
+@websocket_api.async_response
+async def ws_remove_tv_decoder(hass, connection, msg):
+    """Oublie un décodeur TV configuré."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.tv_decoder_store.async_remove(msg["mac"])
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "tv_decoder_remove_failed", str(err))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/tvdecoders/discover"})
+@websocket_api.async_response
+async def ws_discover_tv_decoders(hass, connection, msg):
+    """Sonde les appareils LAN actifs connus pour repérer des décodeurs TV.
+
+    ⚠️ Le décodeur doit être allumé (hors veille) pour répondre — un appareil
+    qui ne répond pas n'est donc pas forcément exclu, juste injoignable au
+    moment du sondage.
+    """
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    session = async_get_clientsession(hass)
+    known_macs = set(coordinator.tv_decoder_store.data)
+    candidates = [
+        (mac, device.get("Name") or mac, device.get("IPAddress"))
+        for mac, device in coordinator.data.get("devices", {}).items()
+        if device.get("Active") and device.get("IPAddress") and mac not in known_macs
+    ]
+
+    async def _check(mac, name, ip):
+        if await tv_decoder_api.async_probe(session, ip) is not None:
+            return {"mac": mac, "name": name, "ip": ip}
+        return None
+
+    results = await asyncio.gather(*(_check(mac, name, ip) for mac, name, ip in candidates))
+    connection.send_result(msg["id"], [r for r in results if r is not None])
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/tvdecoders/key",
+    vol.Required("mac"): str,
+    vol.Required("key"): vol.In(tv_decoder_api.KEYS),
+})
+@websocket_api.async_response
+async def ws_tv_decoder_key(hass, connection, msg):
+    """Envoie un appui de touche de télécommande virtuelle à un décodeur TV."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    decoder = coordinator.tv_decoder_store.data.get(msg["mac"])
+    if decoder is None or not decoder.get("ip"):
+        connection.send_error(msg["id"], "not_found", "Décodeur inconnu")
+        return
+    try:
+        session = async_get_clientsession(hass)
+        await tv_decoder_api.async_key_press(session, decoder["ip"], tv_decoder_api.KEYS[msg["key"]])
+        connection.send_result(msg["id"], {"status": "ok"})
+    except tv_decoder_api.TvDecoderError as err:
+        connection.send_error(msg["id"], "tv_decoder_key_failed", str(err))

@@ -5,13 +5,12 @@ import { TopologyGraph } from "../components/topology-graph.jsx";
 export function TopologyTab() {
   const { data, loading, error } = useWsData("livebox/topology");
   const { data: devices } = useWsData("livebox/devices");
-  const { data: network } = useWsData("livebox/network");
 
   return (
     <div className="space-y-4">
-      <StateBox loading={loading || !devices || !network} error={error} />
-      {data && devices && network && (
-        <TopologyGraph devices={devices} network={network} topology={data} />
+      <StateBox loading={loading || !devices} error={error} />
+      {data && devices && (
+        <TopologyGraph devices={devices} topology={data} />
       )}
 
       <div className="grid gap-4 md:grid-cols-2">

@@ -34,8 +34,18 @@ function useElementSize() {
 }
 
 export function GraphsTab() {
-  const { data, loading, error } = useWsData("livebox/graphs");
+  const { data, loading, error, refresh } = useWsData("livebox/graphs");
   const [containerRef, { width, height }] = useElementSize();
+
+  // L'historique grandit en continu côté serveur (~1 point/min) ; sans
+  // rafraîchissement périodique le graphe resterait figé sur l'instantané
+  // chargé à l'ouverture de l'onglet (et bloqué sur le message "en cours de
+  // constitution" si on l'ouvre juste après un redémarrage de Home Assistant).
+  useEffect(() => {
+    const id = setInterval(refresh, 60_000);
+    return () => clearInterval(id);
+  }, [refresh]);
+
   const points = (data ?? []).map((p) => ({ ...p, label: timeLabel(p.time) }));
 
   return (
