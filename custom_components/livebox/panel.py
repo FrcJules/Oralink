@@ -219,7 +219,8 @@ def ws_get_nat(hass, connection, msg):
 
 @callback
 @websocket_api.websocket_command({vol.Required("type"): "livebox/network"})
-def ws_get_network(hass, connection, msg):
+@websocket_api.async_response
+async def ws_get_network(hass, connection, msg):
     coordinator = _get_coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
@@ -229,7 +230,25 @@ def ws_get_network(hass, connection, msg):
     fiber = data.get("fiber_status", {})
     wan = data.get("wan_status", {})
     counters = data.get("wan_counters", {})
-    infos = data.get("infos", {})
+    infos = data.get("infos", {}) or {}
+
+    # Memory: DeviceInfo.MemoryStatus:get — values in kB
+    mem_raw = await _safe_post(coordinator, "DeviceInfo.MemoryStatus", "get")
+    mem = mem_raw if isinstance(mem_raw, dict) else {}
+    memory = {
+        "total_mb": round(mem["Total"] / 1024, 0) if mem.get("Total") else None,
+        "free_mb": round(mem["Free"] / 1024, 0) if mem.get("Free") else None,
+        "cached_mb": round(mem["Cached"] / 1024, 0) if mem.get("Cached") else None,
+        "buffered_mb": round(mem["Buffered"] / 1024, 0) if mem.get("Buffered") else None,
+    }
+
+    # Service active flags: Devices.Device.<mac>:get
+    base_mac = infos.get("BaseMAC", "")
+    dev_config = {}
+    if base_mac:
+        raw = await _safe_post(coordinator, f"Devices.Device.{base_mac}", "get")
+        if isinstance(raw, dict):
+            dev_config = raw
 
     connection.send_result(msg["id"], {
         "interfaces": [
@@ -256,11 +275,28 @@ def ws_get_network(hass, connection, msg):
         },
         "box": {
             "model": infos.get("ProductClass"),
+            "model_name": infos.get("ModelName"),
+            "manufacturer": infos.get("Manufacturer"),
+            "hardware_version": infos.get("HardwareVersion"),
             "firmware": infos.get("SoftwareVersion"),
+            "firmware_orange": infos.get("AdditionalSoftwareVersion"),
+            "serial": infos.get("SerialNumber"),
+            "base_mac": infos.get("BaseMAC"),
+            "country": infos.get("Country"),
             "uptime_days": round(infos.get("UpTime", 0) / 86400, 1),
             "reboots": infos.get("NumberOfReboots"),
+            "first_use": infos.get("FirstUseDate"),
+            "external_ip": infos.get("ExternalIPAddress"),
+            "device_status": infos.get("DeviceStatus"),
+            "rescue_version": infos.get("RescueVersion"),
             "wired_devices": data.get("count_wired_devices", 0),
             "wireless_devices": data.get("count_wireless_devices", 0),
+        },
+        "memory": memory,
+        "services": {
+            "internet": dev_config.get("Internet"),
+            "iptv": dev_config.get("IPTV"),
+            "telephony": dev_config.get("Telephony"),
         },
     })
 
