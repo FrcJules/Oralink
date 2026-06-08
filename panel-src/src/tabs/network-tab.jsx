@@ -60,10 +60,18 @@ export function NetworkTab() {
       <Card title="Interfaces">
         {interfaces && (
           interfaces.length === 0
-            ? <p className="text-sm lb-text-muted">Aucune interface remontée (HomeLan.getInterfacesNames non supporté sur ce firmware).</p>
-            : interfaces.map((iface) => (
-                <Row key={iface.name} label={iface.name} value={`↓ ${iface.rate_rx} Mb/s / ↑ ${iface.rate_tx} Mb/s`} />
-              ))
+            ? <p className="text-sm lb-text-muted">Aucune interface remontée.</p>
+            : <>
+                {interfaces.map((iface) => (
+                  <Row key={iface.name} label={iface.name} value={`↓ ${iface.rate_rx} Mb/s / ↑ ${iface.rate_tx} Mb/s`} />
+                ))}
+                {interfaces.every((i) => i.rate_rx === 0 && i.rate_tx === 0) && (
+                  <p className="mt-2 text-xs lb-text-muted">
+                    Les débits par interface remontent à 0 sur ce firmware (HomeLan.getResults ne retourne pas de compteurs).
+                    Le débit réel est visible dans l'onglet Graphiques.
+                  </p>
+                )}
+              </>
         )}
       </Card>
     </div>

@@ -129,7 +129,11 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             device_traffic = await self.async_get_device_traffic()
             stats = await self.async_get_results()
             wan_counters = await self.async_get_wan_counters()
-            await self._record_traffic_history(device_traffic, wan_counters)
+            # fiber_stats must be computed before _record_traffic_history so it can
+            # serve as fallback byte-counter source when HomeLan.getWANCounters is
+            # empty (common on Livebox 6 SG60 firmware).
+            fiber_stats = await self.async_get_fiber_stats()
+            await self._record_traffic_history(device_traffic, wan_counters, fiber_stats)
 
             return {
                 "cmissed": cmissed,
@@ -149,7 +153,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "ddns": await self.async_get_ddns(),
                 "wifi_stats": await self.async_get_wifi_stats(),
                 "fiber_status": await self.async_get_fiber_status(),
-                "fiber_stats": await self.async_get_fiber_stats(),
+                "fiber_stats": fiber_stats,
                 "remote_access": await self.async_is_remote_access(),
                 "topology_via_device": topology_via_device,
                 "topology_repeaters": topology_repeaters,
@@ -558,7 +562,10 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             })
 
     async def _record_traffic_history(
-        self, device_traffic: dict[str, Any], wan_counters: dict[str, Any]
+        self,
+        device_traffic: dict[str, Any],
+        wan_counters: dict[str, Any],
+        fiber_stats: dict[str, Any] | None = None,
     ) -> None:
         """Append an aggregate traffic sample for the "Graphiques" tab."""
         # Débit agrégé par appareil (fonctionne uniquement si HomeLan.getDevicesResults
@@ -566,10 +573,15 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         rate_rx = round(sum(t.get("rate_rx", 0) for t in device_traffic.values()), 3)
         rate_tx = round(sum(t.get("rate_tx", 0) for t in device_traffic.values()), 3)
 
-        # Débit WAN calculé depuis le différentiel des compteurs cumulés — fiable
-        # même quand getDevicesResults ne renvoie rien.
+        # Débit WAN calculé depuis le différentiel des compteurs cumulés.
+        # HomeLan.getWANCounters est souvent vide sur Livebox 6 SG60 — on se
+        # rabat alors sur les stats de l'interface veip0 (NeMo.Intf.veip0:getNetDevStats)
+        # qui expose BytesReceived/BytesSent fiables.
         wan_rx = wan_counters.get("BytesReceived") if isinstance(wan_counters, dict) else None
         wan_tx = wan_counters.get("BytesSent") if isinstance(wan_counters, dict) else None
+        if wan_rx is None and isinstance(fiber_stats, dict):
+            wan_rx = fiber_stats.get("BytesReceived")
+            wan_tx = fiber_stats.get("BytesSent")
         wan_rate_rx = 0.0
         wan_rate_tx = 0.0
         if wan_rx is not None and self._traffic_history:

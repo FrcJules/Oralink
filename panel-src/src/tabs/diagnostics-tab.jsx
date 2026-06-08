@@ -72,9 +72,20 @@ function FirewallSection() {
   );
 }
 
+function flattenObject(obj, prefix = "") {
+  if (!obj || typeof obj !== "object") return [];
+  return Object.entries(obj).flatMap(([k, v]) => {
+    const label = prefix ? `${prefix} › ${k}` : k;
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      return flattenObject(v, label);
+    }
+    return [{ label, value: v == null ? "—" : String(v) }];
+  });
+}
+
 function SpeedTestSection() {
   const runAction = useWsAction();
-  const [results, setResults] = useState(null);
+  const [rows, setRows] = useState(null);
   const [fetching, setFetching] = useState(false);
 
   const fetchResults = async () => {
@@ -84,10 +95,12 @@ function SpeedTestSection() {
         { type: "livebox/speedtest/results" },
         { error: "Impossible de récupérer les résultats." },
       );
-      setResults(data && Object.keys(data).length > 0 ? data : null);
-      if (!data || Object.keys(data).length === 0) {
-        setResults({ _empty: true });
-      }
+      // Remove sysbus noise keys (status: null means no error status, not a result)
+      const cleaned = Object.fromEntries(
+        Object.entries(data ?? {}).filter(([k, v]) => k !== "status" || v != null)
+      );
+      const flat = flattenObject(cleaned);
+      setRows(flat.length > 0 ? flat : []);
     } catch {
       // déjà notifié
     } finally {
@@ -115,13 +128,13 @@ function SpeedTestSection() {
         {fetching ? "Récupération…" : "Afficher les résultats"}
       </button>
 
-      {results && (
-        results._empty ? (
+      {rows !== null && (
+        rows.length === 0 ? (
           <p className="text-sm lb-text-muted">Aucun résultat disponible. Lancez d'abord un test depuis l'interface Livebox.</p>
         ) : (
           <div className="rounded-lg border lb-border p-3">
-            {Object.entries(results).map(([k, v]) => (
-              <Row key={k} label={k} value={String(v)} />
+            {rows.map(({ label, value }) => (
+              <Row key={label} label={label} value={value} />
             ))}
           </div>
         )
