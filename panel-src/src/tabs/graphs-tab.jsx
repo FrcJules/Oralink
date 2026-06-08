@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { useWsData } from "../lib/use-ws-data.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -9,58 +8,46 @@ function timeLabel(value) {
   return m ? `${m[1]}:${m[2]}` : String(value);
 }
 
-function SparkLine({ value, color, max }) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+function RateBar({ label, rate, color, max }) {
+  const pct = max > 0 ? Math.min(100, (rate / max) * 100) : 0;
   return (
-    <div className="mt-1 h-1 w-full rounded-full bg-[var(--secondary-background-color)]">
-      <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+    <div className="flex-1">
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs lb-text-muted">{label}</span>
+        <span className="tabular-nums text-sm font-semibold" style={{ color }}>
+          {rate >= 1000
+            ? `${(rate / 1000).toFixed(2)} Gbit/s`
+            : rate >= 1
+            ? `${rate.toFixed(2)} Mbit/s`
+            : `${(rate * 1000).toFixed(0)} Kbit/s`}
+        </span>
+      </div>
+      <div className="mt-1 h-1 w-full rounded-full bg-[var(--secondary-background-color)]">
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+      </div>
     </div>
   );
 }
 
-function LiveRateBadge({ points }) {
-  if (!points || points.length === 0) return null;
-  const latest = points[points.length - 1];
-  const wanRx = latest.wan_rate_rx ?? 0;
-  const wanTx = latest.wan_rate_tx ?? 0;
-  const devRx = latest.rate_rx ?? 0;
-  const devTx = latest.rate_tx ?? 0;
+function LiveBadge({ ifaces }) {
+  if (!ifaces || ifaces.length === 0) return null;
 
-  const showWan = wanRx > 0 || wanTx > 0;
-  const showDev = devRx > 0 || devTx > 0;
-  if (!showWan && !showDev) return null;
+  // Prefer ONT/WAN interface (veip0/Fibre) for the live badge
+  const wan = ifaces.find((i) => i.type === "ont" || i.type === "wan") ?? ifaces[0];
+  if (!wan || wan.rate_rx == null) return null;
 
-  const maxRx = showWan ? wanRx : devRx;
-  const maxTx = showWan ? wanTx : devTx;
-  const maxAll = Math.max(maxRx, maxTx, 0.01);
-
-  const rx = showWan ? wanRx : devRx;
-  const tx = showWan ? wanTx : devTx;
-  const label = showWan ? "WAN" : "Appareils";
+  const rx = wan.rate_rx ?? 0;
+  const tx = wan.rate_tx ?? 0;
+  if (rx === 0 && tx === 0) return null;
+  const maxAll = Math.max(rx, tx, 0.001);
 
   return (
     <div className="mb-4 flex items-stretch gap-4 rounded-xl border lb-border bg-[var(--secondary-background-color)] px-4 py-3">
-      <div className="flex-1">
-        <div className="flex items-baseline justify-between">
-          <span className="text-xs lb-text-muted">{label} ↓</span>
-          <span className="tabular-nums text-sm font-semibold" style={{ color: "#2563eb" }}>
-            {rx.toFixed(2)} <span className="text-xs font-normal lb-text-muted">Mbit/s</span>
-          </span>
-        </div>
-        <SparkLine value={rx} color="#2563eb" max={maxAll} />
-      </div>
+      <RateBar label={`${wan.name} ↓`} rate={rx} color="#2563eb" max={maxAll} />
       <div className="w-px bg-[var(--divider-color)]" />
-      <div className="flex-1">
-        <div className="flex items-baseline justify-between">
-          <span className="text-xs lb-text-muted">{label} ↑</span>
-          <span className="tabular-nums text-sm font-semibold" style={{ color: "#16a34a" }}>
-            {tx.toFixed(2)} <span className="text-xs font-normal lb-text-muted">Mbit/s</span>
-          </span>
-        </div>
-        <SparkLine value={tx} color="#16a34a" max={maxAll} />
-      </div>
-      <div className="flex items-center pl-1">
-        <span className="text-[10px] lb-text-muted">instantané</span>
+      <RateBar label={`${wan.name} ↑`} rate={tx} color="#16a34a" max={maxAll} />
+      <div className="flex items-center pl-1 flex-shrink-0">
+        <span className="text-[10px] lb-text-muted">live · 3 s</span>
       </div>
     </div>
   );
@@ -68,6 +55,7 @@ function LiveRateBadge({ points }) {
 
 export function GraphsTab() {
   const { data, loading, error, refresh } = useWsData("livebox/graphs", {}, 60_000);
+  const { data: liveIfaces } = useWsData("livebox/interfaces/live", {}, 3_000);
 
   const points = (data ?? []).map((p) => ({ ...p, label: timeLabel(p.time) }));
   const hasWan = points.some((p) => (p.wan_rate_rx ?? 0) > 0 || (p.wan_rate_tx ?? 0) > 0);
@@ -86,7 +74,7 @@ export function GraphsTab() {
       <StateBox loading={loading} error={error} />
       {data && (
         <>
-          <LiveRateBadge points={points} />
+          <LiveBadge ifaces={liveIfaces} />
 
           {!hasChart ? (
             <div className="flex items-center gap-3 rounded-lg border lb-border px-4 py-3 text-sm lb-text-muted">
@@ -125,9 +113,6 @@ export function GraphsTab() {
                       <Line type="monotone" dataKey="rate_tx" name="Appareils ↑" stroke="#db2777" dot={false} strokeWidth={1.5} strokeDasharray="4 2" />
                     </>
                   )}
-                  {!hasWan && !hasDevice && (
-                    <Line type="monotone" dataKey="rate_rx" name="Réception" stroke="#2563eb" dot={false} strokeWidth={2} />
-                  )}
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -135,7 +120,8 @@ export function GraphsTab() {
         </>
       )}
       <p className="mt-3 text-xs lb-text-muted">
-        Débit WAN depuis les compteurs cumulés de l'interface veip0, échantillonné ~1 min, conservé ~12h.
+        Débit WAN depuis les compteurs cumulés veip0, échantillonné ~1 min, conservé ~12h.
+        Taux instantané depuis NeMo.Intf rafraîchi toutes les 3 s.
       </p>
     </Card>
   );

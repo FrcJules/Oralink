@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from uuid import uuid4
 
 import voluptuous as vol
@@ -111,6 +112,8 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     # Niveaux de pare-feu
     websocket_api.async_register_command(hass, ws_get_firewall_levels)
     websocket_api.async_register_command(hass, ws_set_firewall_level)
+    # Stats interfaces live (NeMo.Intf, 3 s)
+    websocket_api.async_register_command(hass, ws_get_interfaces_live)
 
 
 def _get_coordinator(hass: HomeAssistant):
@@ -118,6 +121,10 @@ def _get_coordinator(hass: HomeAssistant):
         if hasattr(entry, "runtime_data"):
             return entry.runtime_data
     return None
+
+
+_LIVE_IFACE_STATS_KEY = f"{DOMAIN}_live_iface_stats"
+_LIVE_IFACE_LIST_KEY = f"{DOMAIN}_live_iface_list"
 
 
 # ── Read commands ─────────────────────────────────────────────────────────────
@@ -299,6 +306,93 @@ async def ws_get_network(hass, connection, msg):
             "telephony": dev_config.get("Telephony"),
         },
     })
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/interfaces/live"})
+@websocket_api.async_response
+async def ws_get_interfaces_live(hass, connection, msg):
+    """Live per-interface stats: rates every 3 s via NeMo.Intf.<key>:getNetDevStats."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    now = time.monotonic()
+
+    # Interface list from HomeLan.Interface:get — cached 5 min
+    iface_cache = hass.data.get(_LIVE_IFACE_LIST_KEY)
+    if iface_cache is None or (now - iface_cache["ts"]) > 300:
+        raw_list = await _safe_post(coordinator, "HomeLan.Interface", "get")
+        ifaces: dict[str, dict] = {}
+        ifaces["bridge"] = {"name": "LAN", "type": "lan"}
+        if isinstance(raw_list, dict):
+            for k, v in raw_list.items():
+                if not isinstance(v, dict):
+                    continue
+                alias = v.get("Alias", "")
+                fname = v.get("FriendlyName", k)
+                if alias == "Eth":
+                    ifaces[k] = {"name": fname, "type": "eth"}
+                elif alias == "WiFi":
+                    ifaces[k] = {"name": fname, "type": "wig" if "Guest" in fname else "wif"}
+                elif fname in ("WAN_GPON", "WAN_XGSPON"):
+                    ifaces[k] = {"name": fname, "type": "ont"}
+                elif fname == "WAN_Ethernet":
+                    ifaces[k] = {"name": fname, "type": "wan"}
+        iface_cache = {"ts": now, "ifaces": ifaces}
+        hass.data[_LIVE_IFACE_LIST_KEY] = iface_cache
+
+    ifaces = iface_cache["ifaces"]
+    prev_all = hass.data.get(_LIVE_IFACE_STATS_KEY, {})
+    new_prev: dict[str, dict] = {}
+    results = []
+
+    # Fetch all interfaces concurrently
+    async def _fetch(key: str):
+        return key, await _safe_post(coordinator, f"NeMo.Intf.{key}", "getNetDevStats")
+
+    raw_stats = await asyncio.gather(*[_fetch(k) for k in ifaces])
+
+    for key, stats in raw_stats:
+        meta = ifaces[key]
+        if not isinstance(stats, dict):
+            new_prev[key] = prev_all.get(key, {})
+            continue
+
+        rx = stats.get("RxBytes") or stats.get("BytesReceived") or 0
+        tx = stats.get("TxBytes") or stats.get("BytesSent") or 0
+
+        rate_rx = rate_tx = None
+        p = prev_all.get(key, {})
+        if p.get("ts") is not None:
+            dt = now - p["ts"]
+            if dt >= 0.5:
+                drx = rx - p.get("rx", 0)
+                dtx = tx - p.get("tx", 0)
+                # 32-bit counters wrap at 2^32 bytes
+                if drx < 0:
+                    drx += 2**32
+                if dtx < 0:
+                    dtx += 2**32
+                rate_rx = round(drx / dt / 125000, 3)  # bytes/s → Mbit/s
+                rate_tx = round(dtx / dt / 125000, 3)
+
+        new_prev[key] = {"rx": rx, "tx": tx, "ts": now}
+
+        entry: dict = {
+            "key": key,
+            "name": meta["name"],
+            "type": meta["type"],
+            "rx_bytes": rx,
+            "tx_bytes": tx,
+        }
+        if rate_rx is not None:
+            entry["rate_rx"] = rate_rx
+            entry["rate_tx"] = rate_tx
+        results.append(entry)
+
+    hass.data[_LIVE_IFACE_STATS_KEY] = new_prev
+    connection.send_result(msg["id"], results)
 
 
 @callback

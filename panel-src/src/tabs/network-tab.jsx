@@ -24,20 +24,81 @@ function ServiceBadge({ label, active }) {
   );
 }
 
-function MemBar({ label, usedMb, totalMb, color }) {
-  const pct = totalMb > 0 ? Math.min(100, ((totalMb - usedMb) / totalMb) * 100) : 0;
+function fmtBytes(b) {
+  if (b == null || b === 0) return "0 o";
+  const units = ["o", "Ko", "Mo", "Go", "To"];
+  let i = 0;
+  let v = b;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : v.toFixed(0)} ${units[i]}`;
+}
+
+function fmtRate(mbit) {
+  if (mbit == null) return "—";
+  if (mbit < 0.01) return "< 0.01 Mbit/s";
+  if (mbit >= 1000) return `${(mbit / 1000).toFixed(2)} Gbit/s`;
+  if (mbit >= 1) return `${mbit.toFixed(2)} Mbit/s`;
+  return `${(mbit * 1000).toFixed(0)} Kbit/s`;
+}
+
+const TYPE_COLOR = {
+  ont: "#2563eb",   // WAN bleu
+  wan: "#2563eb",
+  lan: "#16a34a",   // LAN vert
+  eth: "#7c3aed",   // Ethernet violet
+  wif: "#f59e0b",   // Wifi orange
+  wig: "#94a3b8",   // Guest gris
+};
+
+function IfaceRow({ iface }) {
+  const hasRate = iface.rate_rx != null;
+  const color = TYPE_COLOR[iface.type] ?? "#94a3b8";
+  const maxRate = hasRate ? Math.max(iface.rate_rx, iface.rate_tx, 0.001) : 0;
+
   return (
-    <div className="py-1">
-      <div className="flex justify-between text-sm">
-        <span className="lb-text-muted">{label}</span>
-        <span className="font-medium lb-text">{usedMb != null ? `${usedMb} Mo` : "—"}</span>
+    <div className="border-b lb-border py-2 last:border-0">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="size-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+          <span className="text-sm font-medium lb-text">{iface.name}</span>
+          <span className="text-xs lb-text-muted">({iface.key})</span>
+        </div>
+        <div className="text-right tabular-nums text-xs lb-text-muted">
+          {fmtBytes(iface.rx_bytes)} / {fmtBytes(iface.tx_bytes)}
+        </div>
       </div>
-      {totalMb > 0 && (
-        <div className="mt-1 h-1.5 w-full rounded-full bg-[var(--secondary-background-color)]">
-          <div
-            className="h-full rounded-full transition-all"
-            style={{ width: `${pct}%`, backgroundColor: color }}
-          />
+      {hasRate && (
+        <div className="mt-1.5 flex gap-3">
+          <div className="flex-1">
+            <div className="flex justify-between text-xs">
+              <span className="lb-text-muted">↓</span>
+              <span className="font-medium lb-text">{fmtRate(iface.rate_rx)}</span>
+            </div>
+            <div className="mt-0.5 h-1 rounded-full bg-[var(--secondary-background-color)]">
+              <div className="h-full rounded-full" style={{
+                width: `${Math.min(100, (iface.rate_rx / maxRate) * 100)}%`,
+                backgroundColor: color,
+              }} />
+            </div>
+          </div>
+          <div className="flex-1">
+            <div className="flex justify-between text-xs">
+              <span className="lb-text-muted">↑</span>
+              <span className="font-medium lb-text">{fmtRate(iface.rate_tx)}</span>
+            </div>
+            <div className="mt-0.5 h-1 rounded-full bg-[var(--secondary-background-color)]">
+              <div className="h-full rounded-full" style={{
+                width: `${Math.min(100, (iface.rate_tx / maxRate) * 100)}%`,
+                backgroundColor: color,
+                opacity: 0.7,
+              }} />
+            </div>
+          </div>
+        </div>
+      )}
+      {!hasRate && (
+        <div className="mt-0.5 text-xs lb-text-muted italic">
+          En attente d'un second relevé…
         </div>
       )}
     </div>
@@ -46,20 +107,19 @@ function MemBar({ label, usedMb, totalMb, color }) {
 
 export function NetworkTab() {
   const { data, loading, error } = useWsData("livebox/network", {}, 60_000);
-  const { box, wan, fiber, interfaces, memory, services } = data ?? {};
+  const { data: liveIfaces, loading: liveLoading } = useWsData("livebox/interfaces/live", {}, 3_000);
+  const { box, wan, fiber, services } = data ?? {};
 
-  const memUsedMb = (memory?.total_mb && memory?.free_mb)
-    ? Math.round(memory.total_mb - memory.free_mb)
-    : null;
-  const memPct = (memory?.total_mb && memUsedMb != null)
-    ? Math.round((memUsedMb / memory.total_mb) * 100)
-    : null;
+  const memUsedMb = (data?.memory?.total_mb && data?.memory?.free_mb)
+    ? Math.round(data.memory.total_mb - data.memory.free_mb) : null;
+  const memPct = (data?.memory?.total_mb && memUsedMb != null)
+    ? Math.round((memUsedMb / data.memory.total_mb) * 100) : null;
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <StateBox loading={loading} error={error} />
 
-      {/* Services */}
+      {/* Service badges */}
       {services && (services.internet != null || services.iptv != null || services.telephony != null) && (
         <div className="md:col-span-2">
           <div className="flex flex-wrap gap-2">
@@ -70,7 +130,25 @@ export function NetworkTab() {
         </div>
       )}
 
-      {/* Box hardware info */}
+      {/* Live interface stats */}
+      <Card title={
+        <span className="flex items-center gap-2">
+          Interfaces
+          <span className="text-[10px] font-normal lb-text-muted rounded px-1.5 py-0.5 border lb-border">
+            live · 3 s
+          </span>
+        </span>
+      }>
+        {liveLoading && !liveIfaces && <p className="text-sm lb-text-muted">Chargement…</p>}
+        {liveIfaces && liveIfaces.length === 0 && (
+          <p className="text-sm lb-text-muted">Aucune interface remontée.</p>
+        )}
+        {liveIfaces && liveIfaces.map((iface) => (
+          <IfaceRow key={iface.key} iface={iface} />
+        ))}
+      </Card>
+
+      {/* Box hardware */}
       <Card title="Box">
         {box && (
           <>
@@ -81,7 +159,7 @@ export function NetworkTab() {
             <Row label="Firmware" value={box.firmware} />
             <Row label="Firmware Orange" value={box.firmware_orange} />
             <Row label="Version rescue" value={box.rescue_version} />
-            <Row label="Numéro de série" value={box.serial} />
+            <Row label="N° série" value={box.serial} />
             <Row label="MAC de base" value={box.base_mac} />
             <Row label="Pays" value={box.country} />
             <Row label="IP externe" value={box.external_ip} />
@@ -96,26 +174,20 @@ export function NetworkTab() {
       </Card>
 
       {/* RAM */}
-      {memory && memory.total_mb != null && (
+      {data?.memory?.total_mb != null && (
         <Card title={`RAM${memPct != null ? ` — ${memPct}% utilisé` : ""}`}>
-          <Row label="Total" value={memory.total_mb != null ? `${memory.total_mb} Mo` : null} />
-          <MemBar
-            label="Utilisé"
-            usedMb={memUsedMb}
-            totalMb={memory.total_mb}
-            color="#f59e0b"
-          />
-          <MemBar
-            label="Libre"
-            usedMb={memory.free_mb}
-            totalMb={memory.total_mb}
-            color="#10b981"
-          />
-          {memory.cached_mb != null && (
-            <Row label="Cache" value={`${memory.cached_mb} Mo`} />
-          )}
-          {memory.buffered_mb != null && (
-            <Row label="Tampons" value={`${memory.buffered_mb} Mo`} />
+          <Row label="Total" value={`${data.memory.total_mb} Mo`} />
+          <Row label="Utilisé" value={memUsedMb != null ? `${memUsedMb} Mo` : null} />
+          <Row label="Libre" value={data.memory.free_mb != null ? `${data.memory.free_mb} Mo` : null} />
+          {data.memory.cached_mb != null && <Row label="Cache" value={`${data.memory.cached_mb} Mo`} />}
+          {data.memory.buffered_mb != null && <Row label="Tampons" value={`${data.memory.buffered_mb} Mo`} />}
+          {memPct != null && (
+            <div className="mt-2 h-2 rounded-full bg-[var(--secondary-background-color)]">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${memPct}%`, backgroundColor: memPct > 80 ? "#ef4444" : "#f59e0b" }}
+              />
+            </div>
           )}
         </Card>
       )}
@@ -147,25 +219,6 @@ export function NetworkTab() {
             <Row label="Débit max ↓ (Mb/s)" value={fiber.downstream_max} />
             <Row label="Débit max ↑ (Mb/s)" value={fiber.upstream_max} />
           </>
-        )}
-      </Card>
-
-      {/* Interfaces */}
-      <Card title="Interfaces">
-        {interfaces && (
-          interfaces.length === 0
-            ? <p className="text-sm lb-text-muted">Aucune interface remontée.</p>
-            : <>
-                {interfaces.map((iface) => (
-                  <Row key={iface.name} label={iface.name} value={`↓ ${iface.rate_rx} Mb/s / ↑ ${iface.rate_tx} Mb/s`} />
-                ))}
-                {interfaces.every((i) => i.rate_rx === 0 && i.rate_tx === 0) && (
-                  <p className="mt-2 text-xs lb-text-muted">
-                    Débits par interface à 0 — limitation firmware (HomeLan.getResults non disponible sur ce modèle).
-                    Le débit réel est visible dans l'onglet Graphiques.
-                  </p>
-                )}
-              </>
         )}
       </Card>
     </div>
