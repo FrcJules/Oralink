@@ -151,6 +151,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "topology_repeaters": topology_repeaters,
                 "lan": await self.async_get_lan(devices),
                 "upnp": await self.async_get_port_forwarding(),
+                "upnp_igd": await self.async_get_upnp_igd(),
                 "dhcp_leases": await self.async_get_dhcp_leases(),
                 "guest_dhcp_leases": await self.async_get_dhcp_leases("guest"),
                 "dhcp_static_leases": await self.async_get_dhcp_static_leases(),
@@ -476,6 +477,10 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
     async def async_get_nmc(self) -> dict[str, Any]:
         """Get dsl status."""
         return (await self._make_request(self.api.nmc.async_get)).get("status", {})
+
+    async def async_get_upnp_igd(self) -> dict[str, Any]:
+        """Get UPnP-IGD status (the actual Enable flag, not NMC's)."""
+        return (await self._make_request(self.api.upnpigd.async_get)).get("status", {})
 
     async def async_is_wifi(self) -> bool:
         """Get wireless status."""

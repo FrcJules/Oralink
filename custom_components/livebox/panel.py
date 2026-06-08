@@ -503,7 +503,7 @@ def ws_get_advanced(hass, connection, msg):
             "ip":      nmc.get("DMZAddress", ""),
         },
         "upnp": {
-            "enabled": nmc.get("UPnPEnable", nmc.get("IGDEnabled", True)),
+            "enabled": data.get("upnp_igd", {}).get("Enable", False),
             "rules":   upnp_rules,
         },
         "ipv6": {
@@ -650,10 +650,11 @@ async def ws_upnp_toggle(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.upnpigd.async_set,
-            {"Enable": msg["enabled"]},
-        )
+        # Appel direct (sans passer par _make_request, qui avale les
+        # AiosysbusException et renvoie {} silencieusement) pour que les
+        # vrais échecs remontent au bloc except ci-dessous au lieu de
+        # toujours rapporter un succès à l'utilisateur.
+        await coordinator.api.upnpigd.async_set({"Enable": msg["enabled"]})
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
