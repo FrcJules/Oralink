@@ -1,4 +1,8 @@
 import { useState } from "react";
+import {
+  Power, VolumeX, Volume1, Volume2, ChevronUp, ChevronDown, ChevronLeft,
+  ChevronRight, CornerUpLeft, Menu, Circle, Rewind, Play, FastForward,
+} from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -7,16 +11,6 @@ const STATUS_LABELS = {
   media_type: { LIVE: "Direct", REPLAY: "Replay", VOD: "VOD", PVR: "Enregistrement" },
 };
 
-const REMOTE_LAYOUT = [
-  [{ key: "power", label: "⏻" }, null, { key: "mute", label: "🔇" }],
-  [null, { key: "up", label: "▲" }, null],
-  [{ key: "left", label: "◀" }, { key: "ok", label: "OK" }, { key: "right", label: "▶" }],
-  [null, { key: "down", label: "▼" }, null],
-  [{ key: "back", label: "↩" }, { key: "menu", label: "☰" }, { key: "rec", label: "⏺" }],
-  [{ key: "vol_down", label: "VOL −" }, { key: "chan_up", label: "CH ▲" }, { key: "vol_up", label: "VOL +" }],
-  [{ key: "fbwd", label: "⏪" }, { key: "play", label: "⏯" }, { key: "ffwd", label: "⏩" }],
-  [null, { key: "chan_down", label: "CH ▼" }, null],
-];
 
 function statusLabel(status) {
   if (!status) return "Aucune information";
@@ -78,23 +72,122 @@ function DecoderForm({ initial, onSubmit, onCancel, submitLabel }) {
   );
 }
 
-function RemoteControl({ disabled, onKey }) {
+function RemoteKey({ disabled, onClick, label, className = "", children }) {
   return (
-    <div className="grid grid-cols-3 gap-1.5">
-      {REMOTE_LAYOUT.flat().map((btn, i) =>
-        btn ? (
-          <button
-            key={btn.key}
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`flex items-center justify-center lb-text transition active:scale-95 disabled:opacity-30 disabled:active:scale-100 hover:bg-[var(--primary-background-color)] ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function RemoteRocker({ disabled, onUp, onDown, upLabel, downLabel, upIcon, downIcon }) {
+  return (
+    <div className="flex flex-col overflow-hidden rounded-full border lb-border">
+      <RemoteKey disabled={disabled} onClick={onUp} label={upLabel} className="h-8 w-11">
+        {upIcon}
+      </RemoteKey>
+      <div className="h-px border-t lb-border" />
+      <RemoteKey disabled={disabled} onClick={onDown} label={downLabel} className="h-8 w-11">
+        {downIcon}
+      </RemoteKey>
+    </div>
+  );
+}
+
+function RemoteControl({ disabled, onKey }) {
+  const key = (k) => () => onKey(k);
+  const icon = "h-[18px] w-[18px]";
+  const iconSm = "h-3.5 w-3.5";
+
+  return (
+    <div className="mx-auto flex w-full max-w-[230px] flex-col gap-3 rounded-[26px] border lb-border bg-[var(--secondary-background-color)] px-4 py-4">
+      {/* Marche / muet */}
+      <div className="flex items-center justify-between">
+        <RemoteKey disabled={disabled} onClick={key("power")} label="Marche / Veille" className="h-9 w-9 rounded-full border lb-border text-red-500 hover:bg-red-500/10">
+          <Power className={icon} />
+        </RemoteKey>
+        <RemoteKey disabled={disabled} onClick={key("mute")} label="Muet" className="h-9 w-9 rounded-full border lb-border">
+          <VolumeX className={icon} />
+        </RemoteKey>
+      </div>
+
+      {/* Pavé directionnel circulaire */}
+      <div className="mx-auto grid grid-cols-3 grid-rows-3 place-items-center gap-1">
+        <span />
+        <RemoteKey disabled={disabled} onClick={key("up")} label="Haut" className="h-10 w-10 rounded-full">
+          <ChevronUp className={icon} />
+        </RemoteKey>
+        <span />
+        <RemoteKey disabled={disabled} onClick={key("left")} label="Gauche" className="h-10 w-10 rounded-full">
+          <ChevronLeft className={icon} />
+        </RemoteKey>
+        <RemoteKey disabled={disabled} onClick={key("ok")} label="OK" className="h-10 w-10 rounded-full border lb-border text-xs font-semibold">
+          OK
+        </RemoteKey>
+        <RemoteKey disabled={disabled} onClick={key("right")} label="Droite" className="h-10 w-10 rounded-full">
+          <ChevronRight className={icon} />
+        </RemoteKey>
+        <span />
+        <RemoteKey disabled={disabled} onClick={key("down")} label="Bas" className="h-10 w-10 rounded-full">
+          <ChevronDown className={icon} />
+        </RemoteKey>
+        <span />
+      </div>
+
+      {/* Retour / menu / enregistrement */}
+      <div className="flex items-center justify-center gap-3">
+        <RemoteKey disabled={disabled} onClick={key("back")} label="Retour" className="h-9 w-9 rounded-full">
+          <CornerUpLeft className={icon} />
+        </RemoteKey>
+        <RemoteKey disabled={disabled} onClick={key("menu")} label="Menu" className="h-9 w-9 rounded-full">
+          <Menu className={icon} />
+        </RemoteKey>
+        <RemoteKey disabled={disabled} onClick={key("rec")} label="Enregistrer" className="h-9 w-9 rounded-full">
+          <Circle className={`${iconSm} fill-red-500 text-red-500`} />
+        </RemoteKey>
+      </div>
+
+      {/* Volume / chaîne */}
+      <div className="flex items-center justify-center gap-6">
+        <div className="flex flex-col items-center gap-1">
+          <RemoteRocker
             disabled={disabled}
-            onClick={() => onKey(btn.key)}
-            className="lb-btn-outline rounded-md px-2 py-1.5 text-xs font-medium disabled:opacity-40"
-          >
-            {btn.label}
-          </button>
-        ) : (
-          <span key={`empty-${i}`} />
-        ),
-      )}
+            onUp={key("vol_up")} onDown={key("vol_down")}
+            upLabel="Volume +" downLabel="Volume −"
+            upIcon={<Volume2 className={iconSm} />} downIcon={<Volume1 className={iconSm} />}
+          />
+          <span className="text-[10px] uppercase tracking-wide lb-text-muted">Volume</span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <RemoteRocker
+            disabled={disabled}
+            onUp={key("chan_up")} onDown={key("chan_down")}
+            upLabel="Chaîne +" downLabel="Chaîne −"
+            upIcon={<ChevronUp className={iconSm} />} downIcon={<ChevronDown className={iconSm} />}
+          />
+          <span className="text-[10px] uppercase tracking-wide lb-text-muted">Chaîne</span>
+        </div>
+      </div>
+
+      {/* Lecture */}
+      <div className="flex items-center justify-center gap-3">
+        <RemoteKey disabled={disabled} onClick={key("fbwd")} label="Retour rapide" className="h-9 w-9 rounded-full">
+          <Rewind className={iconSm} />
+        </RemoteKey>
+        <RemoteKey disabled={disabled} onClick={key("play")} label="Lecture / Pause" className="h-11 w-11 rounded-full border lb-border">
+          <Play className={icon} />
+        </RemoteKey>
+        <RemoteKey disabled={disabled} onClick={key("ffwd")} label="Avance rapide" className="h-9 w-9 rounded-full">
+          <FastForward className={iconSm} />
+        </RemoteKey>
+      </div>
     </div>
   );
 }

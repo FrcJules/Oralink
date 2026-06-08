@@ -31,6 +31,7 @@ from .const import (
 from .helpers import find_item
 from .repeater_store import RepeaterStore
 from .topology_store import TopologyStore
+from .traffic_history_store import TrafficHistoryStore
 from .tv_decoder_store import TvDecoderStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self.repeater_store = RepeaterStore(hass, config_entry.entry_id)
         self.topology_store = TopologyStore(hass, config_entry.entry_id)
         self.tv_decoder_store = TvDecoderStore(hass, config_entry.entry_id)
+        self.traffic_history_store = TrafficHistoryStore(hass, config_entry.entry_id)
 
     async def _async_setup(self) -> None:
         """Coordinator setup."""
@@ -80,6 +82,8 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         await self.repeater_store.async_load()
         await self.topology_store.async_load()
         await self.tv_decoder_store.async_load()
+        for point in await self.traffic_history_store.async_load():
+            self._traffic_history.append(point)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data."""
@@ -125,7 +129,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             device_traffic = await self.async_get_device_traffic()
             stats = await self.async_get_results()
             wan_counters = await self.async_get_wan_counters()
-            self._record_traffic_history(device_traffic, wan_counters)
+            await self._record_traffic_history(device_traffic, wan_counters)
 
             return {
                 "cmissed": cmissed,
@@ -553,7 +557,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "event": "connected" if is_active else "disconnected",
             })
 
-    def _record_traffic_history(
+    async def _record_traffic_history(
         self, device_traffic: dict[str, Any], wan_counters: dict[str, Any]
     ) -> None:
         """Append an aggregate traffic sample for the "Graphiques" tab."""
@@ -566,6 +570,10 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             "wan_rx_bytes": wan_counters.get("BytesReceived") if isinstance(wan_counters, dict) else None,
             "wan_tx_bytes": wan_counters.get("BytesSent") if isinstance(wan_counters, dict) else None,
         })
+        # Persisté pour survivre aux redémarrages/rechargements — sinon le
+        # graphe reste perpétuellement "en cours de constitution" pour qui
+        # redémarre Home Assistant régulièrement (cf. retour utilisateur).
+        await self.traffic_history_store.async_save(list(self._traffic_history))
 
     @property
     def event_log(self) -> list[dict[str, Any]]:
@@ -642,10 +650,13 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         # Key by actual Name so the lookup against getResults response works.
         # FriendlyName ("2.4GHz-Private_SSID") was used before but getResults
         # returns data keyed by the real interface name (e.g. "vap2g0priv0").
+        # FriendlyName est absent sur certains modèles/firmwares — on retombe
+        # alors sur le nom technique plutôt que d'écarter complètement
+        # l'interface (ce qui laissait la carte "Interfaces" vide).
         interfaces = {
             item["Name"]: item
             for item in raw.values()
-            if "Name" in item and "FriendlyName" in item and "vlan" not in item["Name"]
+            if "Name" in item and "vlan" not in item["Name"]
         }
 
         data = (
@@ -657,15 +668,16 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
 
         for name, item in interfaces.items():
             # Result is keyed by actual interface name — same as the request key.
+            # Pas de Traffic sur certains modèles/firmwares — on garde quand
+            # même l'interface dans la liste (débit à 0) plutôt que de la
+            # faire disparaître entièrement de la carte "Interfaces".
             traffic = data.get(name, {}).get("Traffic", [])
-            if not traffic:
-                continue
-            stats = traffic[0]
+            stats = traffic[0] if traffic else {}
 
             # Rx_Counter and Tx_Counter are collected over a 30-second window.
             # Convert them to Mbit/s to match the sensor unit declaration.
             results[name] = {
-                "friendly_name": item["FriendlyName"],
+                "friendly_name": item.get("FriendlyName") or item["Name"],
                 "alias": item.get("alias"),
                 "rate_rx": round(stats.get("Rx_Counter", 0) / 30 / 1_000_000, 2),
                 "rate_tx": round(stats.get("Tx_Counter", 0) / 30 / 1_000_000, 2),
