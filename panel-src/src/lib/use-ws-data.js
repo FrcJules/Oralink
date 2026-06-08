@@ -3,10 +3,13 @@ import { useWsCommand } from "./hass-context.jsx";
 
 /**
  * Charge le résultat d'une commande WebSocket `livebox/*` (cf. panel.py) et
- * expose { data, loading, error, refresh }. Le refresh est manuel : les tabs
- * appellent `livebox/refresh` côté coordinator avant de recharger si besoin.
+ * expose { data, loading, error, refresh }.
+ *
+ * @param {string} type        - type de commande WS (ex: "livebox/devices")
+ * @param {object} params      - paramètres supplémentaires (optionnel)
+ * @param {number|null} interval - intervalle de rafraîchissement auto en ms (null = désactivé)
  */
-export function useWsData(type, params = {}) {
+export function useWsData(type, params = {}, interval = null) {
   const callWs = useWsCommand();
   const [state, setState] = useState({ data: null, loading: true, error: null });
 
@@ -20,6 +23,13 @@ export function useWsData(type, params = {}) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Rafraîchissement automatique si interval est fourni
+  useEffect(() => {
+    if (!interval) return;
+    const id = setInterval(load, interval);
+    return () => clearInterval(id);
+  }, [load, interval]);
 
   return { ...state, refresh: load };
 }

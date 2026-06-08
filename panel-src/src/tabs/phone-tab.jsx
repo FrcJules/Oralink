@@ -81,7 +81,7 @@ function AddContactForm({ onSaved }) {
 const STATUS_LABEL = { missed: "Manqué", incoming: "Entrant", outgoing: "Sortant", accepted: "Reçu" };
 
 export function PhoneTab() {
-  const { data, loading, error, refresh } = useWsData("livebox/phone");
+  const { data, loading, error, refresh } = useWsData("livebox/phone", {}, 60_000);
   const runAction = useWsAction();
   const { callers = [], contacts = [] } = data ?? {};
 

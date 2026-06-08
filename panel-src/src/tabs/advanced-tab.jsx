@@ -13,8 +13,8 @@ function Row({ label, value }) {
 }
 
 export function AdvancedTab() {
-  const { data, loading, error, refresh } = useWsData("livebox/advanced");
-  const { data: rebootHistory } = useWsData("livebox/reboot_history");
+  const { data, loading, error, refresh } = useWsData("livebox/advanced", {}, 60_000);
+  const { data: rebootHistory } = useWsData("livebox/reboot_history", {}, 60_000);
   const runAction = useWsAction();
   const { dns, ddns, dmz, upnp, ipv6 } = data ?? {};
 

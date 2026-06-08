@@ -80,7 +80,7 @@ function AddRuleForm({ onSaved }) {
 }
 
 export function NatTab() {
-  const { data, loading, error, refresh } = useWsData("livebox/nat");
+  const { data, loading, error, refresh } = useWsData("livebox/nat", {}, 60_000);
   const runAction = useWsAction();
   const [deleteError, setDeleteError] = useState(null);
 

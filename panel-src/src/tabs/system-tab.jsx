@@ -74,7 +74,7 @@ function ToggleButton({ label, value, onToggle }) {
 }
 
 function TimeCard() {
-  const { data, loading, error } = useWsData("livebox/system/time");
+  const { data, loading, error } = useWsData("livebox/system/time", {}, 60_000);
 
   const ntpServers = Array.isArray(data?.ntp_servers)
     ? data.ntp_servers.join(", ")
@@ -160,7 +160,7 @@ function UsbCard() {
 }
 
 function PowerCard() {
-  const { data, loading, error, refresh } = useWsData("livebox/system/power");
+  const { data, loading, error, refresh } = useWsData("livebox/system/power", {}, 60_000);
   const runAction = useWsAction();
   const [toggling, setToggling] = useState(false);
 
@@ -210,7 +210,7 @@ function PowerCard() {
 }
 
 export function SystemTab() {
-  const { data, loading, error, refresh } = useWsData("livebox/system");
+  const { data, loading, error, refresh } = useWsData("livebox/system", {}, 60_000);
   const runAction = useWsAction();
 
   const handleShowWifiPassword = async (enabled) => {

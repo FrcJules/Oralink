@@ -580,8 +580,10 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         wan_rx = wan_counters.get("BytesReceived") if isinstance(wan_counters, dict) else None
         wan_tx = wan_counters.get("BytesSent") if isinstance(wan_counters, dict) else None
         if wan_rx is None and isinstance(fiber_stats, dict):
-            wan_rx = fiber_stats.get("BytesReceived")
-            wan_tx = fiber_stats.get("BytesSent")
+            # NeMo.Intf.veip0:getNetDevStats may use Linux net-dev naming (RxBytes/TxBytes)
+            # or sysbus naming (BytesReceived/BytesSent) depending on firmware.
+            wan_rx = fiber_stats.get("BytesReceived") or fiber_stats.get("RxBytes")
+            wan_tx = fiber_stats.get("BytesSent") or fiber_stats.get("TxBytes")
         wan_rate_rx = 0.0
         wan_rate_tx = 0.0
         if wan_rx is not None and self._traffic_history:

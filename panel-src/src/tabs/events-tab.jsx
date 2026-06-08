@@ -2,7 +2,7 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 export function EventsTab() {
-  const { data, loading, error } = useWsData("livebox/events");
+  const { data, loading, error } = useWsData("livebox/events", {}, 30_000);
 
   return (
     <Card title="Journal d'événements — connexions et déconnexions">

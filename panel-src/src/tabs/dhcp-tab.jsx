@@ -89,7 +89,7 @@ function LeaseTable({ leases, empty, onRefresh }) {
 }
 
 export function DhcpTab() {
-  const { data, loading, error, refresh } = useWsData("livebox/dhcp");
+  const { data, loading, error, refresh } = useWsData("livebox/dhcp", {}, 30_000);
 
   return (
     <div className="grid gap-4">

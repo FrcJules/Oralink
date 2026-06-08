@@ -11,7 +11,7 @@ function Row({ label, value }) {
 }
 
 export function NetworkTab() {
-  const { data, loading, error } = useWsData("livebox/network");
+  const { data, loading, error } = useWsData("livebox/network", {}, 60_000);
   const { box, wan, fiber, interfaces } = data ?? {};
 
   return (
