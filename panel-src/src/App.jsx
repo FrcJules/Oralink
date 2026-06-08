@@ -12,10 +12,13 @@ import { PhoneTab } from "./tabs/phone-tab.jsx";
 import { GraphsTab } from "./tabs/graphs-tab.jsx";
 import { EventsTab } from "./tabs/events-tab.jsx";
 import { TvDecoderTab } from "./tabs/tv-decoder-tab.jsx";
+import { WifiTab } from "./tabs/wifi-tab.jsx";
+import { DiagnosticsTab } from "./tabs/diagnostics-tab.jsx";
 
 const TABS = [
   { id: "devices", label: "Appareils", render: () => <DevicesTab /> },
   { id: "network", label: "Réseau", render: () => <NetworkTab /> },
+  { id: "wifi", label: "Wifi", render: () => <WifiTab /> },
   { id: "dhcp", label: "DHCP", render: () => <DhcpTab /> },
   { id: "nat", label: "NAT", render: () => <NatTab /> },
   { id: "topology", label: "Topologie", render: () => <TopologyTab /> },
@@ -25,6 +28,7 @@ const TABS = [
   { id: "phone", label: "Téléphone", render: () => <PhoneTab /> },
   { id: "system", label: "Système", render: () => <SystemTab /> },
   { id: "advanced", label: "Avancé", render: () => <AdvancedTab /> },
+  { id: "diagnostics", label: "Diagnostics", render: () => <DiagnosticsTab /> },
   { id: "tv", label: "Décodeurs TV", render: () => <TvDecoderTab /> },
 ];
 

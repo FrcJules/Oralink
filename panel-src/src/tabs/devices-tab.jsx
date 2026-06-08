@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Zap } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
+import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 function ipSortKey(ip) {
@@ -17,6 +18,7 @@ const COLUMNS = [
   { key: "signal", label: "Signal", sortKey: (d) => d.signal ?? -Infinity },
   { key: "rate_rx", label: "Débit ↓", sortKey: (d) => d.rate_rx ?? -Infinity },
   { key: "rate_tx", label: "Débit ↑", sortKey: (d) => d.rate_tx ?? -Infinity },
+  { key: "actions", label: "", sortKey: null },
 ];
 
 function SortIcon({ active, direction }) {
@@ -30,6 +32,34 @@ function Rate({ value, className, style }) {
     <span className={`tabular-nums ${className ?? ""}`} style={style}>
       {value} <span className="lb-text-muted">Mb/s</span>
     </span>
+  );
+}
+
+function WolButton({ mac }) {
+  const runAction = useWsAction();
+  const [waking, setWaking] = useState(false);
+
+  const handleWake = async () => {
+    setWaking(true);
+    try {
+      await runAction(
+        { type: "livebox/device/wake", mac },
+        { success: "Paquet Wake-on-LAN envoyé." },
+      );
+    } finally {
+      setWaking(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleWake}
+      disabled={waking}
+      title="Wake-on-LAN"
+      className="rounded border lb-border p-0.5 hover:bg-[var(--secondary-background-color)] disabled:opacity-40"
+    >
+      <Zap className="size-3.5 lb-text-muted" />
+    </button>
   );
 }
 
@@ -81,13 +111,15 @@ export function DevicesTab() {
               <tr>
                 {COLUMNS.map((col) => (
                   <th key={col.key} className="py-1.5 pr-3">
-                    <button
-                      onClick={() => handleSort(col.key)}
-                      className="inline-flex items-center gap-1 uppercase hover:lb-text"
-                    >
-                      {col.label}
-                      <SortIcon active={sort.key === col.key} direction={sort.direction} />
-                    </button>
+                    {col.sortKey ? (
+                      <button
+                        onClick={() => handleSort(col.key)}
+                        className="inline-flex items-center gap-1 uppercase hover:lb-text"
+                      >
+                        {col.label}
+                        <SortIcon active={sort.key === col.key} direction={sort.direction} />
+                      </button>
+                    ) : null}
                   </th>
                 ))}
               </tr>
@@ -105,6 +137,7 @@ export function DevicesTab() {
                   <td className="py-1.5 pr-3 lb-text-muted">{d.signal ?? "—"}</td>
                   <td className="py-1.5 pr-3"><Rate value={d.rate_rx} className="text-sky-600" /></td>
                   <td className="py-1.5 pr-3"><Rate value={d.rate_tx} style={{ color: "var(--lb-brand)" }} /></td>
+                  <td className="py-1.5"><WolButton mac={d.mac} /></td>
                 </tr>
               ))}
             </tbody>

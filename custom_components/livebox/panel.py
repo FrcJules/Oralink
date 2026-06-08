@@ -82,6 +82,35 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_remove_tv_decoder)
     websocket_api.async_register_command(hass, ws_discover_tv_decoders)
     websocket_api.async_register_command(hass, ws_tv_decoder_key)
+    # SpeedTest
+    websocket_api.async_register_command(hass, ws_speedtest_results)
+    # Wake-on-LAN
+    websocket_api.async_register_command(hass, ws_device_wake)
+    # Time / NTP
+    websocket_api.async_register_command(hass, ws_get_time)
+    websocket_api.async_register_command(hass, ws_set_timezone)
+    # USB / Stockage
+    websocket_api.async_register_command(hass, ws_get_usb)
+    websocket_api.async_register_command(hass, ws_usb3_toggle)
+    # Gestion de l'énergie
+    websocket_api.async_register_command(hass, ws_get_power)
+    websocket_api.async_register_command(hass, ws_set_power)
+    # Wifi détaillé (radios, VAP, stations)
+    websocket_api.async_register_command(hass, ws_get_wifi_detail)
+    websocket_api.async_register_command(hass, ws_set_wifi_radio)
+    websocket_api.async_register_command(hass, ws_set_wifi_vap)
+    websocket_api.async_register_command(hass, ws_kickstation)
+    # Planificateur Wifi
+    websocket_api.async_register_command(hass, ws_get_wifi_schedule)
+    websocket_api.async_register_command(hass, ws_set_wifi_schedule)
+    # WAN reconnect (PPPoE)
+    websocket_api.async_register_command(hass, ws_wan_reconnect)
+    # Accès distant Orange
+    websocket_api.async_register_command(hass, ws_get_remote_access)
+    websocket_api.async_register_command(hass, ws_set_remote_access)
+    # Niveaux de pare-feu
+    websocket_api.async_register_command(hass, ws_get_firewall_levels)
+    websocket_api.async_register_command(hass, ws_set_firewall_level)
 
 
 def _get_coordinator(hass: HomeAssistant):
@@ -1311,3 +1340,487 @@ async def ws_tv_decoder_key(hass, connection, msg):
         connection.send_result(msg["id"], {"status": "ok"})
     except tv_decoder_api.TvDecoderError as err:
         connection.send_error(msg["id"], "tv_decoder_key_failed", str(err))
+
+
+# ── SpeedTest ─────────────────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/speedtest/results"})
+@websocket_api.async_response
+async def ws_speedtest_results(hass, connection, msg):
+    """Retourne les derniers résultats de speedtest mémorisés par la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    raw = await _safe_post(coordinator, "SpeedTest", "getWANResults")
+    connection.send_result(msg["id"], raw if isinstance(raw, dict) else {})
+
+
+# ── Wake-on-LAN ───────────────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/device/wake",
+    vol.Required("mac"): str,
+})
+@websocket_api.async_response
+async def ws_device_wake(hass, connection, msg):
+    """Envoie un paquet Wake-on-LAN à un appareil via la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.devices._auth.post(
+            "WOL", "sendWakeOnLan", {"hostID": msg["mac"]}
+        )
+        connection.send_result(msg["id"], {"status": "sent"})
+    except Exception as err:
+        connection.send_error(msg["id"], "wol_failed", str(err))
+
+
+# ── Heure / NTP ───────────────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/system/time"})
+@websocket_api.async_response
+async def ws_get_time(hass, connection, msg):
+    """Retourne l'heure locale, le fuseau horaire et les serveurs NTP de la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    time_raw = await _safe_post(coordinator, "Time", "getTime")
+    ntp_raw = await _safe_post(coordinator, "Time", "getNTPServers")
+    status_raw = await _safe_post(coordinator, "Time", "getStatus")
+    connection.send_result(msg["id"], {
+        "local_time": time_raw.get("LocalTime") if isinstance(time_raw, dict) else None,
+        "utc_time": time_raw.get("UTCTime") if isinstance(time_raw, dict) else None,
+        "timezone": time_raw.get("LocalTimeZoneName") if isinstance(time_raw, dict) else None,
+        "ntp_servers": ntp_raw if isinstance(ntp_raw, (list, dict)) else [],
+        "ntp_status": status_raw.get("Status") if isinstance(status_raw, dict) else None,
+        "ntp_synced": status_raw.get("NTPSync") if isinstance(status_raw, dict) else None,
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/system/time/set",
+    vol.Required("timezone"): str,
+})
+@websocket_api.async_response
+async def ws_set_timezone(hass, connection, msg):
+    """Change le fuseau horaire de la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.devices._auth.post(
+            "Time", "setLocalTimeZoneName", {"timezone": msg["timezone"]}
+        )
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "timezone_set_failed", str(err))
+
+
+# ── USB / Stockage ────────────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/system/usb"})
+@websocket_api.async_response
+async def ws_get_usb(hass, connection, msg):
+    """Retourne les périphériques USB et les volumes de stockage connectés."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    mediums = await _safe_post(coordinator, "StorageService", "getPhysicalMediums")
+    hosts = await _safe_post(coordinator, "USBHosts", "getDevices")
+    connection.send_result(msg["id"], {
+        "mediums": mediums if isinstance(mediums, list) else [],
+        "hosts": hosts if isinstance(hosts, list) else [],
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/system/usb3/toggle",
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_usb3_toggle(hass, connection, msg):
+    """Active ou désactive le port USB 3.0 de la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.devices._auth.post(
+            "USBHosts", "enableUSB3", {"enable": msg["enabled"]}
+        )
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "usb3_toggle_failed", str(err))
+
+
+# ── Gestion de l'énergie ──────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/system/power"})
+@websocket_api.async_response
+async def ws_get_power(hass, connection, msg):
+    """Retourne l'état du gestionnaire d'énergie (mode éco, consommation)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    pm = await _safe_post(coordinator, "PowerManagement", "get")
+    profiles = await _safe_post(coordinator, "PowerManagement", "getProfiles")
+    connection.send_result(msg["id"], {
+        "enabled": pm.get("Enable") if isinstance(pm, dict) else None,
+        "status": pm.get("Status") if isinstance(pm, dict) else None,
+        "mode": pm.get("ConfigurationMode") if isinstance(pm, dict) else None,
+        "power_watts": pm.get("Power") if isinstance(pm, dict) else None,
+        "profiles": profiles if isinstance(profiles, list) else [],
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/system/power/set",
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_set_power(hass, connection, msg):
+    """Active ou désactive le mode économie d'énergie de la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.devices._auth.post(
+            "PowerManagement", "set", {"Enable": msg["enabled"]}
+        )
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "power_set_failed", str(err))
+
+
+# ── Wifi détaillé (radios, VAP, stations associées) ───────────────────────────
+
+_RADIO_IFACES = ["rad2g0", "rad5g0", "rad6g0"]
+_VAP_IFACES = [
+    "vap2g0priv0", "vap5g0priv0", "vap6g0priv0",
+    "vap2g0guest0", "vap5g0guest0",
+]
+
+
+async def _get_radio_info(coordinator, iface: str) -> dict | None:
+    """Lit les paramètres d'une radio Wifi via NeMo.Intf.<iface>:get."""
+    raw = await _safe_post(coordinator, f"NeMo.Intf.{iface}", "get")
+    if not isinstance(raw, dict):
+        return None
+    return {
+        "iface": iface,
+        "band": raw.get("OperatingFrequencyBand"),
+        "channel": raw.get("Channel"),
+        "auto_channel": raw.get("AutoChannelEnable"),
+        "bandwidth": raw.get("CurrentOperatingChannelBandwidth"),
+        "standards": raw.get("OperatingStandards"),
+        "enabled": raw.get("Enable"),
+        "status": raw.get("RadioStatus"),
+        "tx_power": raw.get("TransmitPower"),
+        "possible_channels": raw.get("PossibleChannels"),
+    }
+
+
+async def _get_vap_info(coordinator, iface: str) -> dict | None:
+    """Lit les paramètres d'un VAP Wifi + stations associées."""
+    raw = await _safe_post(coordinator, f"NeMo.Intf.{iface}", "get")
+    if not isinstance(raw, dict):
+        return None
+    stations_raw = await _safe_post(
+        coordinator, f"NeMo.Intf.{iface}.AssociatedDevice", "get"
+    )
+    stations = []
+    if isinstance(stations_raw, list):
+        for s in stations_raw:
+            if isinstance(s, dict):
+                stations.append({
+                    "mac": s.get("MACAddress"),
+                    "ip": s.get("IPAddress"),
+                    "rssi": s.get("LastDataUplinkRate") or s.get("SignalStrength"),
+                    "noise": s.get("Noise"),
+                    "tx_rate": s.get("LastDataDownlinkRate"),
+                    "rx_rate": s.get("LastDataUplinkRate"),
+                    "active": s.get("Active"),
+                    "authenticated": s.get("AuthenticationState"),
+                })
+    elif isinstance(stations_raw, dict):
+        for s in stations_raw.values():
+            if isinstance(s, dict):
+                stations.append({
+                    "mac": s.get("MACAddress"),
+                    "ip": s.get("IPAddress"),
+                    "rssi": s.get("LastDataUplinkRate") or s.get("SignalStrength"),
+                    "noise": s.get("Noise"),
+                    "tx_rate": s.get("LastDataDownlinkRate"),
+                    "rx_rate": s.get("LastDataUplinkRate"),
+                    "active": s.get("Active"),
+                    "authenticated": s.get("AuthenticationState"),
+                })
+    return {
+        "iface": iface,
+        "ssid": raw.get("SSID"),
+        "bssid": raw.get("BSSID"),
+        "enabled": raw.get("Enable"),
+        "status": raw.get("VAPStatus"),
+        "hidden": not raw.get("SSIDAdvertisementEnabled", True),
+        "mac_filter": raw.get("MACFilterAddressList"),
+        "max_assoc": raw.get("MaxAssociatedDevices"),
+        "station_count": raw.get("ActiveAssociatedDeviceNumberOfEntries", 0),
+        "stations": stations,
+    }
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/wifi/detail"})
+@websocket_api.async_response
+async def ws_get_wifi_detail(hass, connection, msg):
+    """Retourne les radios, VAPs et stations associées Wifi de la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    radios_raw = await asyncio.gather(*(_get_radio_info(coordinator, r) for r in _RADIO_IFACES))
+    vaps_raw = await asyncio.gather(*(_get_vap_info(coordinator, v) for v in _VAP_IFACES))
+    connection.send_result(msg["id"], {
+        "radios": [r for r in radios_raw if r is not None],
+        "vaps": [v for v in vaps_raw if v is not None],
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/wifi/radio/set",
+    vol.Required("iface"): str,
+    vol.Optional("channel"): int,
+    vol.Optional("auto_channel"): bool,
+    vol.Optional("bandwidth"): str,
+    vol.Optional("standards"): str,
+    vol.Optional("tx_power"): int,
+})
+@websocket_api.async_response
+async def ws_set_wifi_radio(hass, connection, msg):
+    """Modifie les paramètres d'une radio Wifi (canal, largeur de bande, etc.)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    iface = msg["iface"]
+    if iface not in _RADIO_IFACES:
+        connection.send_error(msg["id"], "invalid_iface", f"Unknown radio interface: {iface}")
+        return
+    params = {}
+    if "channel" in msg:
+        params["Channel"] = msg["channel"]
+    if "auto_channel" in msg:
+        params["AutoChannelEnable"] = msg["auto_channel"]
+    if "bandwidth" in msg:
+        params["MaxChannelBandwidth"] = msg["bandwidth"]
+    if "standards" in msg:
+        params["OperatingStandards"] = msg["standards"]
+    if "tx_power" in msg:
+        params["TransmitPower"] = msg["tx_power"]
+    if not params:
+        connection.send_result(msg["id"], {"status": "noop"})
+        return
+    try:
+        await coordinator.api.devices._auth.post(f"NeMo.Intf.{iface}", "set", params)
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "radio_set_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/wifi/vap/set",
+    vol.Required("iface"): str,
+    vol.Optional("ssid"): str,
+    vol.Optional("hidden"): bool,
+    vol.Optional("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_set_wifi_vap(hass, connection, msg):
+    """Modifie les paramètres d'un VAP Wifi (SSID, diffusion, activation)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    iface = msg["iface"]
+    if iface not in _VAP_IFACES:
+        connection.send_error(msg["id"], "invalid_iface", f"Unknown VAP interface: {iface}")
+        return
+    params = {}
+    if "ssid" in msg:
+        params["SSID"] = msg["ssid"]
+    if "hidden" in msg:
+        params["SSIDAdvertisementEnabled"] = not msg["hidden"]
+    if "enabled" in msg:
+        params["Enable"] = msg["enabled"]
+    if not params:
+        connection.send_result(msg["id"], {"status": "noop"})
+        return
+    try:
+        await coordinator.api.devices._auth.post(f"NeMo.Intf.{iface}", "set", params)
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "vap_set_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/wifi/kickstation",
+    vol.Required("vap"): str,
+    vol.Required("mac"): str,
+})
+@websocket_api.async_response
+async def ws_kickstation(hass, connection, msg):
+    """Déconnecte un client Wifi associé à un VAP."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    vap = msg["vap"]
+    if vap not in _VAP_IFACES:
+        connection.send_error(msg["id"], "invalid_vap", f"Unknown VAP: {vap}")
+        return
+    try:
+        await coordinator.api.devices._auth.post(
+            f"NeMo.Intf.{vap}", "kickStation", {"MACAddress": msg["mac"]}
+        )
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "kickstation_failed", str(err))
+
+
+# ── Planificateur Wifi (WLanScheduler) ────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/wifi/schedule"})
+@websocket_api.async_response
+async def ws_get_wifi_schedule(hass, connection, msg):
+    """Retourne les plannings Wifi (horaires d'activation/désactivation)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    raw = await _safe_post(coordinator, "WLanScheduler", "get")
+    schedules_raw = await _safe_post(coordinator, "WLanScheduler.Schedules", "get")
+    connection.send_result(msg["id"], {
+        "schedules": schedules_raw if isinstance(schedules_raw, (list, dict)) else [],
+        "raw": raw if isinstance(raw, dict) else {},
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/wifi/schedule/set",
+    vol.Required("id"): str,
+    vol.Required("state"): str,
+})
+@websocket_api.async_response
+async def ws_set_wifi_schedule(hass, connection, msg):
+    """Modifie l'état d'un planning Wifi (Active/Inactive/Override)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.devices._auth.post(
+            "WLanScheduler", "setState", {"ID": msg["id"], "state": msg["state"]}
+        )
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "wifi_schedule_set_failed", str(err))
+
+
+# ── WAN reconnect (PPPoE) ─────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/network/wan/reconnect"})
+@websocket_api.async_response
+async def ws_wan_reconnect(hass, connection, msg):
+    """Force une reconnexion WAN (PPPoE) via NMC.TPPP:force."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.devices._auth.post("NMC.TPPP", "force")
+        connection.send_result(msg["id"], {"status": "reconnecting"})
+    except Exception as err:
+        connection.send_error(msg["id"], "wan_reconnect_failed", str(err))
+
+
+# ── Accès distant Orange ──────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/remote_access"})
+@websocket_api.async_response
+async def ws_get_remote_access(hass, connection, msg):
+    """Retourne l'état de l'accès distant Orange (OrangeRemoteAccess)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    raw = await _safe_post(coordinator, "OrangeRemoteAccess", "get")
+    connection.send_result(msg["id"], {
+        "enabled": raw.get("Enable") if isinstance(raw, dict) else None,
+        "active": raw.get("Activate") if isinstance(raw, dict) else None,
+        "status": raw.get("Status") if isinstance(raw, dict) else None,
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/remote_access/set",
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_set_remote_access(hass, connection, msg):
+    """Active ou désactive l'accès distant Orange."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.devices._auth.post(
+            "OrangeRemoteAccess", "set", {"Enable": msg["enabled"]}
+        )
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "remote_access_set_failed", str(err))
+
+
+# ── Niveaux de pare-feu ───────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/firewall/levels"})
+@websocket_api.async_response
+async def ws_get_firewall_levels(hass, connection, msg):
+    """Retourne le niveau de pare-feu actuel et les niveaux disponibles."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    current = coordinator.data.get("firewall_level", "")
+    levels_raw = await _safe_post(coordinator, "Firewall.Level", "get")
+    connection.send_result(msg["id"], {
+        "current": current,
+        "levels": levels_raw if isinstance(levels_raw, (list, dict)) else [],
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/firewall/level/set",
+    vol.Required("level"): str,
+})
+@websocket_api.async_response
+async def ws_set_firewall_level(hass, connection, msg):
+    """Change le niveau de pare-feu de la Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.firewall.async_set_firewall_level({"level": msg["level"]})
+        await coordinator.api.firewall.async_commit()
+        hass.async_create_task(coordinator.async_request_refresh())
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "firewall_level_set_failed", str(err))
