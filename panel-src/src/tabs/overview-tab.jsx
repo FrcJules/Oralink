@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
+import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 function Row({ label, value }) {
@@ -21,6 +23,68 @@ function ServiceBadge({ label, active }) {
       <span className={`size-2 rounded-full ${active ? "bg-emerald-500" : "bg-gray-400"}`} />
       {label}
     </div>
+  );
+}
+
+function IptvCard() {
+  const { data, loading, error } = useWsData("livebox/iptv", {}, 120_000);
+  const iptv_status = data?.status;
+  const config = data?.config ?? {};
+
+  const hasData = iptv_status || (config && Object.keys(config).length > 0);
+
+  return (
+    <Card title="IPTV">
+      <StateBox loading={loading} error={error} />
+      {!loading && !error && !hasData && (
+        <p className="text-sm lb-text-muted">Service IPTV non disponible sur ce modèle.</p>
+      )}
+      {Array.isArray(iptv_status) && iptv_status.map((item, i) => (
+        <div key={i} className="mb-2 rounded border lb-border p-2">
+          {Object.entries(item).map(([k, v]) => (
+            <Row key={k} label={k} value={String(v)} />
+          ))}
+        </div>
+      ))}
+      {typeof iptv_status === "object" && !Array.isArray(iptv_status) && iptv_status && (
+        Object.entries(iptv_status).map(([k, v]) => (
+          <Row key={k} label={k} value={String(v)} />
+        ))
+      )}
+      {data?.multi_screens != null && (
+        <Row label="Multi-écrans" value={data.multi_screens ? "Activé" : "Désactivé"} />
+      )}
+      {config.MulticastIPAddress && <Row label="IP multicast" value={config.MulticastIPAddress} />}
+    </Card>
+  );
+}
+
+function ConnectionStatusCard() {
+  const { data, loading, error } = useWsData("livebox/connection/status", {}, 60_000);
+
+  return (
+    <Card title="Connexion — détails">
+      <StateBox loading={loading} error={error} />
+      {data && (
+        <>
+          {data.error_code && data.error_code !== "None" && (
+            <Row label="Code erreur WAN" value={data.error_code} />
+          )}
+          {data.vlan_id != null && <Row label="VLAN ID" value={data.vlan_id} />}
+          {data.mtu != null && <Row label="MTU" value={data.mtu} />}
+          {data.nmc?.LinkType && <Row label="Type de lien" value={data.nmc.LinkType} />}
+          {data.nmc?.MACAddress && <Row label="MAC WAN" value={data.nmc.MACAddress} />}
+          {data.nmc?.Username && <Row label="PPPoE utilisateur" value={data.nmc.Username} />}
+          {data.autodetect?.Mode && <Row label="Mode IPv6" value={data.autodetect.Mode} />}
+          {data.cgnat?.Status != null && (
+            <Row label="CG-NAT" value={data.cgnat.Status ? "Actif" : "Inactif"} />
+          )}
+          {data.cgnat?.Demand != null && (
+            <Row label="CG-NAT (demande)" value={data.cgnat.Demand ? "Activé" : "Désactivé"} />
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -121,6 +185,9 @@ export function OverviewTab() {
           </>
         )}
       </Card>
+
+      <IptvCard />
+      <ConnectionStatusCard />
     </div>
   );
 }

@@ -1,12 +1,12 @@
 /**
  * Onglet Administration — combine :
  *   • Système (LEDs, écran, sauvegarde/restauration, NTP, USB, énergie)
- *   • Avancé (DNS, DMZ, UPnP, DynDNS, IPv6, historique redémarrages)
+ *   • Avancé (DNS, DMZ, UPnP, DynDNS, IPv6, historique redémarrages, table de routage)
  *   • Diagnostics (SpeedTest, Pare-feu, Accès distant, Reconnexion WAN)
- *   • Répéteurs (paramètres de connexion)
+ *   • Répéteurs (paramètres de connexion + infos détaillées)
  */
 import { useState } from "react";
-import { Clock, HardDrive, Zap, Shield, RefreshCw } from "lucide-react";
+import { Clock, HardDrive, Zap, Shield, RefreshCw, Router, Radio } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -330,16 +330,39 @@ function AdvancedSection() {
 
       <Card title="DynDNS">
         {ddns && (
-          ddns.hosts.length === 0
-            ? <p className="text-sm lb-text-muted">Aucun DynDNS configuré.</p>
-            : <ul className="space-y-1 text-sm">
-                {ddns.hosts.map((h) => (
-                  <li key={h.hostname} className="flex justify-between border-b lb-border py-1 last:border-0">
-                    <span className="font-medium">{h.hostname}</span>
-                    <span className="lb-text-muted">{h.service} · {h.status}</span>
-                  </li>
-                ))}
-              </ul>
+          <>
+            {ddns.global_enabled != null && (
+              <div className="flex items-center justify-between border-b lb-border pb-2 mb-2 text-sm">
+                <span className="lb-text-muted">Service activé</span>
+                <span className="flex items-center gap-2">
+                  <span className="font-medium lb-text">{ddns.global_enabled ? "Oui" : "Non"}</span>
+                  <button
+                    onClick={async () => {
+                      await runAction(
+                        { type: "livebox/ddns/global/toggle", enabled: !ddns.global_enabled },
+                        { success: !ddns.global_enabled ? "DynDNS activé." : "DynDNS désactivé." },
+                      );
+                      refresh();
+                    }}
+                    className="lb-link text-xs hover:underline"
+                  >
+                    {ddns.global_enabled ? "Désactiver" : "Activer"}
+                  </button>
+                </span>
+              </div>
+            )}
+            {ddns.hosts.length === 0
+              ? <p className="text-sm lb-text-muted">Aucun hôte DynDNS configuré.</p>
+              : <ul className="space-y-1 text-sm">
+                  {ddns.hosts.map((h) => (
+                    <li key={h.hostname} className="flex justify-between border-b lb-border py-1 last:border-0">
+                      <span className="font-medium">{h.hostname}</span>
+                      <span className="lb-text-muted">{h.service} · {h.status}</span>
+                    </li>
+                  ))}
+                </ul>
+            }
+          </>
         )}
       </Card>
 
@@ -385,7 +408,55 @@ function AdvancedSection() {
               </ul>
         )}
       </Card>
+
+      <RoutingCard />
     </div>
+  );
+}
+
+function RoutingCard() {
+  const { data, loading, error } = useWsData("livebox/routing/table", {}, 120_000);
+  const routes = data && typeof data === "object" ? Object.values(data) : [];
+
+  return (
+    <Card title={<span className="flex items-center gap-2"><Router className="size-4" /> Table de routage</span>}>
+      <StateBox loading={loading} error={error} />
+      {!loading && !error && routes.length === 0 && (
+        <p className="text-sm lb-text-muted">
+          Aucune route statique configurée ou fonctionnalité réservée aux modèles Livebox Pro.
+        </p>
+      )}
+      {routes.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b lb-border text-xs lb-text-muted">
+                <th className="pb-1 text-left font-medium">Nom</th>
+                <th className="pb-1 text-left font-medium">Destination</th>
+                <th className="pb-1 text-left font-medium">Masque</th>
+                <th className="pb-1 text-left font-medium">Passerelle</th>
+                <th className="pb-1 text-left font-medium">Actif</th>
+              </tr>
+            </thead>
+            <tbody>
+              {routes.map((r, i) => (
+                <tr key={i} className="border-b lb-border last:border-0">
+                  <td className="py-1 pr-2 lb-text">{r.Name ?? r.name ?? "—"}</td>
+                  <td className="py-1 pr-2 lb-text-muted font-mono text-xs">{r.DestinationAddress ?? r.Destination ?? "—"}</td>
+                  <td className="py-1 pr-2 lb-text-muted font-mono text-xs">{r.SubnetMask ?? r.Mask ?? "—"}</td>
+                  <td className="py-1 pr-2 lb-text-muted font-mono text-xs">{r.GatewayAddress ?? r.Gateway ?? "—"}</td>
+                  <td className="py-1">
+                    <span className={`rounded px-1.5 py-0.5 text-xs ${r.Enable || r.enable ? "bg-emerald-100 text-emerald-700" : "bg-[var(--secondary-background-color)] lb-text-muted"}`}>
+                      {r.Enable || r.enable ? "Oui" : "Non"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -606,6 +677,69 @@ function RepeaterForm({ repeater, onSaved }) {
   );
 }
 
+function RepeaterInfoPanel({ repeaterKey }) {
+  const runAction = useWsAction();
+  const [info, setInfo] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const fetchInfo = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await runAction(
+        { type: "livebox/repeater/info", key: repeaterKey },
+        { error: "Impossible de joindre le répéteur." }
+      );
+      setInfo(result ?? null);
+    } catch (err) {
+      setError(String(err?.message ?? err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const di = info?.device_info ?? {};
+  const wifi = info?.wifi ?? {};
+  const mem = info?.memory ?? {};
+
+  return (
+    <div className="mt-3">
+      <button onClick={fetchInfo} disabled={loading}
+        className="rounded-md border lb-border px-3 py-1 text-xs hover:bg-[var(--secondary-background-color)] disabled:opacity-50">
+        <span className="flex items-center gap-1.5"><Radio className="size-3" />
+          {loading ? "Connexion…" : "Interroger le répéteur"}
+        </span>
+      </button>
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {info && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {Object.keys(di).length > 0 && (
+            <div className="rounded-lg border lb-border p-2">
+              <p className="mb-1 text-xs font-semibold uppercase lb-text-muted">Informations appareil</p>
+              {di.Manufacturer && <Row label="Fabricant" value={di.Manufacturer} />}
+              {di.ProductClass && <Row label="Modèle" value={di.ProductClass} />}
+              {di.SoftwareVersion && <Row label="Firmware" value={di.SoftwareVersion} />}
+              {di.SerialNumber && <Row label="N° série" value={di.SerialNumber} />}
+              {di.BaseMAC && <Row label="MAC" value={di.BaseMAC} />}
+              {di.UpTime != null && <Row label="Uptime" value={`${Math.round(di.UpTime / 3600)} h`} />}
+            </div>
+          )}
+          {(wifi.Enable != null || wifi.Status != null || mem.total_mb) && (
+            <div className="rounded-lg border lb-border p-2">
+              <p className="mb-1 text-xs font-semibold uppercase lb-text-muted">Wifi & Mémoire</p>
+              {wifi.Enable != null && <Row label="Wifi activé" value={wifi.Enable ? "Oui" : "Non"} />}
+              {wifi.Status != null && <Row label="Statut Wifi" value={wifi.Status ? "Actif" : "Inactif"} />}
+              {mem.total_mb != null && <Row label="RAM totale" value={`${mem.total_mb} Mo`} />}
+              {mem.free_mb != null && <Row label="RAM libre" value={`${mem.free_mb} Mo`} />}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RepeatersSection() {
   const { data, loading, error, refresh } = useWsData("livebox/repeaters");
 
@@ -624,6 +758,12 @@ function RepeatersSection() {
                 <div key={repeater.key} className="rounded-lg border lb-border p-3">
                   <p className="mb-2 text-sm font-medium lb-text">📡 {repeater.name}</p>
                   <RepeaterForm repeater={repeater} onSaved={refresh} />
+                  {repeater.ip && repeater.has_password && (
+                    <RepeaterInfoPanel repeaterKey={repeater.key} />
+                  )}
+                  {repeater.ip && !repeater.has_password && (
+                    <p className="mt-2 text-xs lb-text-muted">Entrez le mot de passe pour interroger le répéteur.</p>
+                  )}
                 </div>
               ))}
             </div>

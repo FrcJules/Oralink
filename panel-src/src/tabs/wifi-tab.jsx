@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Settings } from "lucide-react";
+import { ChevronDown, ChevronRight, Settings, Wifi, WifiOff } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -155,10 +155,12 @@ function VapRow({ vap, onKick, onSet }) {
   const up = vap.status === "Up";
   const count = vap.station_count ?? vap.stations?.length ?? 0;
 
+  const [enabled, setEnabled] = useState(vap.enabled ?? true);
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onSet(vap.iface, { ssid, hidden });
+      await onSet(vap.iface, { ssid, hidden, enabled });
       setEditOpen(false);
     } finally { setSaving(false); }
   };
@@ -215,6 +217,10 @@ function VapRow({ vap, onKick, onSet }) {
               <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
               SSID masqué
             </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+              VAP activé
+            </label>
             <button onClick={handleSave} disabled={saving || !ssid} className="lb-btn-primary text-xs px-3 py-1">
               {saving ? "…" : "Appliquer"}
             </button>
@@ -223,6 +229,88 @@ function VapRow({ vap, onKick, onSet }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Global Wifi toggle ────────────────────────────────────────────────────────
+
+function GlobalWifiCard({ wifiEnabled, guestEnabled, guestTimerHours, onRefresh }) {
+  const runAction = useWsAction();
+  const [toggling, setToggling] = useState(null);
+  const [timer, setTimer] = useState(String(guestTimerHours ?? 0));
+
+  const handleWifiToggle = async () => {
+    setToggling("wifi");
+    try {
+      await runAction(
+        { type: "livebox/wifi/global/toggle", enabled: !wifiEnabled },
+        { success: !wifiEnabled ? "Wifi activé." : "Wifi désactivé." },
+      );
+      onRefresh();
+    } finally { setToggling(null); }
+  };
+
+  const handleGuestToggle = async () => {
+    setToggling("guest");
+    try {
+      const timerHours = parseInt(timer, 10) || 0;
+      await runAction(
+        { type: "livebox/wifi/guest/toggle", enabled: !guestEnabled, timer_hours: timerHours },
+        { success: !guestEnabled ? "Wifi invité activé." : "Wifi invité désactivé." },
+      );
+      onRefresh();
+    } finally { setToggling(null); }
+  };
+
+  return (
+    <Card title={<span className="flex items-center gap-2"><Wifi className="size-4" /> Wifi global</span>}>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium lb-text">Wifi principal</p>
+            <p className="text-xs lb-text-muted">Active ou désactive tous les réseaux Wifi</p>
+          </div>
+          <button
+            onClick={handleWifiToggle}
+            disabled={toggling !== null || wifiEnabled == null}
+            className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
+              wifiEnabled
+                ? "border border-red-200 text-red-600 hover:bg-red-50"
+                : "lb-btn-primary"
+            } disabled:opacity-40`}
+          >
+            {toggling === "wifi" ? "…" : wifiEnabled ? <span className="flex items-center gap-1.5"><WifiOff className="size-3.5" /> Désactiver</span> : <span className="flex items-center gap-1.5"><Wifi className="size-3.5" /> Activer</span>}
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium lb-text">Wifi invité</p>
+            {guestEnabled && (
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-xs lb-text-muted">Durée (h, 0=∞)</p>
+                <input
+                  type="number" min={0} max={24} value={timer}
+                  onChange={(e) => setTimer(e.target.value)}
+                  className="lb-input w-14 text-xs py-0.5"
+                />
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleGuestToggle}
+            disabled={toggling !== null || guestEnabled == null}
+            className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
+              guestEnabled
+                ? "border border-red-200 text-red-600 hover:bg-red-50"
+                : "lb-btn-primary"
+            } disabled:opacity-40`}
+          >
+            {toggling === "guest" ? "…" : guestEnabled ? "Désactiver" : "Activer"}
+          </button>
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -254,6 +342,16 @@ export function WifiTab() {
   return (
     <div className="space-y-4">
       <StateBox loading={loading} error={error} />
+
+      {/* Global controls */}
+      {data && (
+        <GlobalWifiCard
+          wifiEnabled={data.wifi_enabled}
+          guestEnabled={data.guest_enabled}
+          guestTimerHours={data.guest_timer_hours}
+          onRefresh={refresh}
+        />
+      )}
 
       {/* Radios */}
       <Card title={

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Zap } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Zap, X, Lock, Unlock } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -63,9 +63,132 @@ function WolButton({ mac }) {
   );
 }
 
+function Row({ label, value }) {
+  return (
+    <div className="flex justify-between border-b lb-border py-1 text-sm last:border-0">
+      <span className="lb-text-muted">{label}</span>
+      <span className="font-medium lb-text">{value ?? "—"}</span>
+    </div>
+  );
+}
+
+function DeviceDetailDrawer({ device, onClose }) {
+  const runAction = useWsAction();
+  const [info, setInfo] = useState(null);
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [schedule, setSchedule] = useState(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+
+  // Fetch detailed device info on mount
+  useState(() => {
+    (async () => {
+      setInfoLoading(true);
+      try {
+        const result = await runAction({ type: "livebox/device/info", mac: device.mac }, {});
+        setInfo(result ?? {});
+      } catch { setInfo({}); } finally { setInfoLoading(false); }
+    })();
+    (async () => {
+      setScheduleLoading(true);
+      try {
+        const result = await runAction({ type: "livebox/device/wan_access", mac: device.mac }, {});
+        setSchedule(result ?? {});
+      } catch { setSchedule({}); } finally { setScheduleLoading(false); }
+    })();
+  }, []);
+
+  const isBlocked = schedule?.scheduleInfo?.override === "Disable" && schedule?.scheduleInfo?.value === "Disable";
+
+  const handleBlock = async (block) => {
+    setBlocking(true);
+    try {
+      await runAction(
+        { type: "livebox/device/wan_access/set", mac: device.mac, blocked: block },
+        { success: block ? "Accès WAN bloqué." : "Accès WAN autorisé." }
+      );
+      const result = await runAction({ type: "livebox/device/wan_access", mac: device.mac }, {});
+      setSchedule(result ?? {});
+    } finally { setBlocking(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-end bg-black/30" onClick={onClose}>
+      <div
+        className="relative h-full w-full max-w-md overflow-y-auto bg-[var(--card-background-color)] shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 flex items-center justify-between border-b lb-border bg-[var(--card-background-color)] p-4">
+          <div>
+            <p className="font-semibold lb-text">{device.name}</p>
+            <p className="text-xs lb-text-muted">{device.mac}</p>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1 hover:bg-[var(--secondary-background-color)]">
+            <X className="size-5 lb-text-muted" />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-4">
+          {/* Basic info from devices list */}
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase lb-text-muted">Résumé</p>
+            <Row label="Actif" value={device.active ? "Oui" : "Non"} />
+            <Row label="IP" value={device.ip} />
+            <Row label="Interface" value={device.interface || device.band} />
+            <Row label="Type" value={device.type} />
+            <Row label="Constructeur" value={device.manufacturer} />
+            <Row label="Première vue" value={device.first_seen} />
+            <Row label="Dernière connexion" value={device.last_connection} />
+          </div>
+
+          {/* WAN access control */}
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase lb-text-muted">Accès Internet</p>
+            {scheduleLoading && <p className="text-sm lb-text-muted">Chargement…</p>}
+            {schedule != null && !scheduleLoading && (
+              <>
+                <Row label="Statut" value={
+                  isBlocked ? "Bloqué" :
+                  schedule.scheduleInfo ? "Accès planifié" : "Accès libre"
+                } />
+                <div className="mt-2 flex gap-2">
+                  <button onClick={() => handleBlock(true)} disabled={blocking || isBlocked}
+                    className="flex items-center gap-1.5 rounded border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40">
+                    <Lock className="size-3" /> Bloquer
+                  </button>
+                  <button onClick={() => handleBlock(false)} disabled={blocking || !schedule.scheduleInfo}
+                    className="flex items-center gap-1.5 rounded border border-emerald-200 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">
+                    <Unlock className="size-3" /> Débloquer
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Full device info */}
+          {infoLoading && <p className="text-sm lb-text-muted">Chargement des détails…</p>}
+          {info && Object.keys(info).length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase lb-text-muted">Détails Livebox</p>
+              {info.Internet != null && <Row label="Service Internet" value={info.Internet ? "Oui" : "Non"} />}
+              {info.IPTV != null && <Row label="Service IPTV" value={info.IPTV ? "Oui" : "Non"} />}
+              {info.Telephony != null && <Row label="Service Téléphonie" value={info.Telephony ? "Oui" : "Non"} />}
+              {info.FirewallLevel && <Row label="Niveau pare-feu" value={info.FirewallLevel} />}
+              {info.BootLoaderVersion && <Row label="Version BootLoader" value={info.BootLoaderVersion} />}
+              {info.VendorClassID && <Row label="Classe fournisseur" value={info.VendorClassID} />}
+              {info.SSID && <Row label="SSID" value={info.SSID} />}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DevicesTab() {
   const { data, loading, error } = useWsData("livebox/devices", {}, 3_000);
   const [sort, setSort] = useState({ key: "name", direction: "asc" });
+  const [selectedDevice, setSelectedDevice] = useState(null);
 
   const handleSort = (key) => {
     setSort((s) => (s.key === key
@@ -88,48 +211,59 @@ export function DevicesTab() {
   }, [data, sort]);
 
   return (
-    <Card title={`Appareils${data ? ` (${data.length})` : ""}`}>
-      <StateBox loading={loading} error={error} />
-      {sorted && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs uppercase lb-text-muted">
-              <tr>
-                {COLUMNS.map((col) => (
-                  <th key={col.key} className="py-1.5 pr-3">
-                    {col.sortKey ? (
-                      <button
-                        onClick={() => handleSort(col.key)}
-                        className="inline-flex items-center gap-1 uppercase hover:lb-text"
-                      >
-                        {col.label}
-                        <SortIcon active={sort.key === col.key} direction={sort.direction} />
-                      </button>
-                    ) : null}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((d) => (
-                <tr key={d.mac} className="border-t lb-border">
-                  <td className="py-1.5 pr-3 font-medium">
-                    <span className={`mr-1.5 inline-block size-2 rounded-full ${d.active ? "bg-emerald-500" : "bg-[var(--disabled-text-color)]"}`} />
-                    {d.name}
-                  </td>
-                  <td className="py-1.5 pr-3 lb-text-muted">{d.ip || "—"}</td>
-                  <td className="py-1.5 pr-3 lb-text-muted">{d.type || "—"}</td>
-                  <td className="py-1.5 pr-3 lb-text-muted">{d.interface || d.band || "—"}</td>
-                  <td className="py-1.5 pr-3 lb-text-muted">{d.signal ?? "—"}</td>
-                  <td className="py-1.5 pr-3"><Rate value={d.rate_rx} className="text-sky-600" /></td>
-                  <td className="py-1.5 pr-3"><Rate value={d.rate_tx} style={{ color: "var(--lb-brand)" }} /></td>
-                  <td className="py-1.5"><WolButton mac={d.mac} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+    <>
+      {selectedDevice && (
+        <DeviceDetailDrawer device={selectedDevice} onClose={() => setSelectedDevice(null)} />
       )}
-    </Card>
+      <Card title={`Appareils${data ? ` (${data.length})` : ""}`}>
+        <StateBox loading={loading} error={error} />
+        {sorted && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-xs uppercase lb-text-muted">
+                <tr>
+                  {COLUMNS.map((col) => (
+                    <th key={col.key} className="py-1.5 pr-3">
+                      {col.sortKey ? (
+                        <button
+                          onClick={() => handleSort(col.key)}
+                          className="inline-flex items-center gap-1 uppercase hover:lb-text"
+                        >
+                          {col.label}
+                          <SortIcon active={sort.key === col.key} direction={sort.direction} />
+                        </button>
+                      ) : null}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((d) => (
+                  <tr key={d.mac} className="border-t lb-border hover:bg-[var(--secondary-background-color)]/50">
+                    <td className="py-1.5 pr-3 font-medium">
+                      <span className={`mr-1.5 inline-block size-2 rounded-full ${d.active ? "bg-emerald-500" : "bg-[var(--disabled-text-color)]"}`} />
+                      <button
+                        onClick={() => setSelectedDevice(d)}
+                        className="lb-link hover:underline text-left"
+                        title="Voir les détails"
+                      >
+                        {d.name}
+                      </button>
+                    </td>
+                    <td className="py-1.5 pr-3 lb-text-muted">{d.ip || "—"}</td>
+                    <td className="py-1.5 pr-3 lb-text-muted">{d.type || "—"}</td>
+                    <td className="py-1.5 pr-3 lb-text-muted">{d.interface || d.band || "—"}</td>
+                    <td className="py-1.5 pr-3 lb-text-muted">{d.signal ?? "—"}</td>
+                    <td className="py-1.5 pr-3"><Rate value={d.rate_rx} className="text-sky-600" /></td>
+                    <td className="py-1.5 pr-3"><Rate value={d.rate_tx} style={{ color: "var(--lb-brand)" }} /></td>
+                    <td className="py-1.5"><WolButton mac={d.mac} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </>
   );
 }

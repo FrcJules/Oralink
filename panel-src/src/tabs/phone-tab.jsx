@@ -3,6 +3,40 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 
+function Row({ label, value }) {
+  return (
+    <div className="flex justify-between border-b lb-border py-1 text-sm last:border-0">
+      <span className="lb-text-muted">{label}</span>
+      <span className="font-medium lb-text">{value ?? "—"}</span>
+    </div>
+  );
+}
+
+function VoipTrunksCard() {
+  const { data, loading, error } = useWsData("livebox/voip/trunks", {}, 120_000);
+  const trunks = Array.isArray(data) ? data : (data && typeof data === "object" ? Object.values(data) : []);
+
+  return (
+    <Card title="Lignes VoIP (trunks)">
+      <StateBox loading={loading} error={error} />
+      {!loading && !error && trunks.length === 0 && (
+        <p className="text-sm lb-text-muted">Aucun trunk VoIP configuré ou service non disponible.</p>
+      )}
+      {trunks.map((trunk, i) => (
+        <div key={i} className="mb-3 rounded-lg border lb-border p-2">
+          <p className="mb-1 font-medium text-sm lb-text">{trunk.Name || trunk.name || `Ligne ${i + 1}`}</p>
+          {trunk.Status != null && <Row label="Statut" value={trunk.Status} />}
+          {trunk.Enable != null && <Row label="Activé" value={trunk.Enable ? "Oui" : "Non"} />}
+          {trunk.DirectoryNumber && <Row label="Numéro" value={trunk.DirectoryNumber} />}
+          {trunk.RegistrarServer && <Row label="Serveur SIP" value={trunk.RegistrarServer} />}
+          {trunk.AuthUserName && <Row label="Utilisateur SIP" value={trunk.AuthUserName} />}
+          {trunk.URI && <Row label="URI" value={trunk.URI} />}
+        </div>
+      ))}
+    </Card>
+  );
+}
+
 function AddContactForm({ onSaved }) {
   const runAction = useWsAction();
   const [open, setOpen] = useState(false);
@@ -134,6 +168,8 @@ export function PhoneTab() {
               </ul>
         )}
       </Card>
+
+      <VoipTrunksCard />
     </div>
   );
 }

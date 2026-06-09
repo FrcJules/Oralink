@@ -7,9 +7,10 @@ import time
 from uuid import uuid4
 
 import voluptuous as vol
+from aiosysbus import AIOSysbus
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_get_clientsession, async_create_clientsession
 
 from . import tv_decoder_api
 from .const import DOMAIN
@@ -116,6 +117,26 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_firewall_level)
     # Stats interfaces live (NeMo.Intf, 3 s)
     websocket_api.async_register_command(hass, ws_get_interfaces_live)
+    # Table de routage (Livebox Pro uniquement)
+    websocket_api.async_register_command(hass, ws_get_routing_table)
+    # IPTV status et config
+    websocket_api.async_register_command(hass, ws_get_iptv)
+    # VoIP trunks
+    websocket_api.async_register_command(hass, ws_get_voip_trunks)
+    # Statut de connexion NMC + VLAN/MTU
+    websocket_api.async_register_command(hass, ws_get_connection_status)
+    # Informations détaillées d'un appareil par MAC
+    websocket_api.async_register_command(hass, ws_get_device_info)
+    # Planning d'accès WAN d'un appareil (block/unblock)
+    websocket_api.async_register_command(hass, ws_get_device_wan_access)
+    websocket_api.async_register_command(hass, ws_set_device_wan_access)
+    # Informations détaillées d'un répéteur (connexion directe sysbus)
+    websocket_api.async_register_command(hass, ws_get_repeater_info)
+    # Wifi global on/off + guest Wifi
+    websocket_api.async_register_command(hass, ws_wifi_global_toggle)
+    websocket_api.async_register_command(hass, ws_guest_wifi_toggle)
+    # DynDNS global enable/disable
+    websocket_api.async_register_command(hass, ws_ddns_global_toggle)
 
 
 def _get_coordinator(hass: HomeAssistant):
@@ -644,7 +665,8 @@ async def ws_dhcp_static_delete(hass, connection, msg):
 
 @callback
 @websocket_api.websocket_command({vol.Required("type"): "livebox/advanced"})
-def ws_get_advanced(hass, connection, msg):
+@websocket_api.async_response
+async def ws_get_advanced(hass, connection, msg):
     """Return advanced network config from coordinator cache."""
     coordinator = _get_coordinator(hass)
     if coordinator is None:
@@ -672,6 +694,10 @@ def ws_get_advanced(hass, connection, msg):
     all_rules = data.get("upnp", [])
     upnp_rules = [r for r in all_rules if not str(r.get("id", "")).startswith("webui_")]
 
+    # DynDNS global enable status
+    ddns_global_raw = await _safe_post(coordinator, "DynDNS", "getGlobalEnable")
+    ddns_global_enabled = bool(ddns_global_raw) if ddns_global_raw is not None else None
+
     connection.send_result(msg["id"], {
         "dns": {
             "servers":      wan.get("DNSServers", ""),
@@ -679,6 +705,7 @@ def ws_get_advanced(hass, connection, msg):
         },
         "ddns": {
             "hosts": ddns_list,
+            "global_enabled": ddns_global_enabled,
         },
         "dmz": {
             "enabled": nmc.get("DMZEnable", False),
@@ -1775,11 +1802,25 @@ async def ws_get_wifi_detail(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    radios_raw = await asyncio.gather(*(_get_radio_info(coordinator, r) for r in _RADIO_IFACES))
-    vaps_raw = await asyncio.gather(*(_get_vap_info(coordinator, v) for v in _VAP_IFACES))
+    radios_raw, vaps_raw, nmc_wifi, nmc_guest, guest_timer = await asyncio.gather(
+        asyncio.gather(*(_get_radio_info(coordinator, r) for r in _RADIO_IFACES)),
+        asyncio.gather(*(_get_vap_info(coordinator, v) for v in _VAP_IFACES)),
+        _safe_post(coordinator, "NMC.Wifi", "get"),
+        _safe_post(coordinator, "NMC.Guest", "get"),
+        _safe_post(coordinator, "NMC.WlanTimer", "getActivationTimer", {"InterfaceName": "guest"}),
+    )
+    nmc_wifi = nmc_wifi if isinstance(nmc_wifi, dict) else {}
+    nmc_guest = nmc_guest if isinstance(nmc_guest, dict) else {}
+    try:
+        guest_timer_hours = int(guest_timer) // 3600 if guest_timer is not None else None
+    except (TypeError, ValueError):
+        guest_timer_hours = None
     connection.send_result(msg["id"], {
         "radios": [r for r in radios_raw if r is not None],
         "vaps": [v for v in vaps_raw if v is not None],
+        "wifi_enabled": nmc_wifi.get("Enable"),
+        "guest_enabled": nmc_guest.get("Status") == "Enabled" or nmc_guest.get("Enable") is True,
+        "guest_timer_hours": guest_timer_hours,
     })
 
 
@@ -2014,3 +2055,361 @@ async def ws_set_firewall_level(hass, connection, msg):
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "firewall_level_set_failed", str(err))
+
+
+# ── Table de routage (NMC.LAN:getStaticRoutes — Livebox Pro uniquement) ───────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/routing/table"})
+@websocket_api.async_response
+async def ws_get_routing_table(hass, connection, msg):
+    """Retourne la table de routage statique (NMC.LAN:getStaticRoutes).
+
+    ⚠️ Cette API n'est disponible que sur les modèles Livebox Pro.
+    Elle retourne None (pas d'erreur) sur les modèles standard.
+    """
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    result = await _safe_post(coordinator, "NMC.LAN", "getStaticRoutes")
+    connection.send_result(msg["id"], result if isinstance(result, dict) else {})
+
+
+# ── IPTV status et configuration ──────────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/iptv"})
+@websocket_api.async_response
+async def ws_get_iptv(hass, connection, msg):
+    """Retourne le statut IPTV (NMC.OrangeTV) et la configuration associée."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    # getIPTVStatus returns {"status": {"data": {"IPTVStatus": [...]}}}
+    status_raw = await _safe_post(coordinator, "NMC.OrangeTV", "getIPTVStatus")
+    # getIPTVMultiScreens
+    multiscreens_raw = await _safe_post(coordinator, "NMC.OrangeTV", "getIPTVMultiScreens")
+    # getIPTVConfig
+    config_raw = await _safe_post(coordinator, "NMC.OrangeTV", "getIPTVConfig")
+
+    # IPTVStatus response shape: the raw sysbus result has status.data.IPTVStatus
+    # _safe_post already unwraps .status — so status_raw is the data dict or None
+    iptv_status = None
+    if isinstance(status_raw, dict):
+        iptv_status = status_raw.get("IPTVStatus") or status_raw
+
+    multiscreens = None
+    if isinstance(multiscreens_raw, dict):
+        multiscreens = multiscreens_raw.get("Enable")
+    elif multiscreens_raw is not None:
+        multiscreens = multiscreens_raw
+
+    connection.send_result(msg["id"], {
+        "status": iptv_status,
+        "multi_screens": multiscreens,
+        "config": config_raw if isinstance(config_raw, dict) else {},
+    })
+
+
+# ── VoIP trunks ───────────────────────────────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/voip/trunks"})
+@websocket_api.async_response
+async def ws_get_voip_trunks(hass, connection, msg):
+    """Retourne les trunks VoIP configurés (VoiceService.VoiceApplication:listTrunks)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    result = await _safe_post(coordinator, "VoiceService.VoiceApplication", "listTrunks")
+    connection.send_result(msg["id"], result if isinstance(result, (list, dict)) else [])
+
+
+# ── Statut de connexion NMC + VLAN/MTU ───────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/connection/status"})
+@websocket_api.async_response
+async def ws_get_connection_status(hass, connection, msg):
+    """Retourne le statut de connexion complet : NMC, erreur primaire, VLAN, MTU."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    nmc_raw, error_raw, vlan_raw, mtu_raw, autodetect_raw, cgnat_raw = await asyncio.gather(
+        _safe_post(coordinator, "NMC", "get"),
+        _safe_post(coordinator, "NMC.Error", "getPrimaryErrorCode"),
+        _safe_post(coordinator, "NeMo.Intf.data", "getFirstParameter", {"name": "VLANID"}),
+        _safe_post(coordinator, "NeMo.Intf.data", "getFirstParameter", {"name": "MTU"}),
+        _safe_post(coordinator, "NMC.Autodetect", "get"),
+        _safe_post(coordinator, "NMC.ServiceEligibility.DSLITE", "get"),
+    )
+
+    try:
+        vlan_id = int(vlan_raw) if vlan_raw is not None else None
+    except (TypeError, ValueError):
+        vlan_id = None
+    try:
+        mtu = int(mtu_raw) if mtu_raw is not None else None
+    except (TypeError, ValueError):
+        mtu = None
+
+    connection.send_result(msg["id"], {
+        "nmc": nmc_raw if isinstance(nmc_raw, dict) else {},
+        "error_code": error_raw if isinstance(error_raw, str) else (str(error_raw) if error_raw is not None else None),
+        "vlan_id": vlan_id,
+        "mtu": mtu,
+        "autodetect": autodetect_raw if isinstance(autodetect_raw, dict) else {},
+        "cgnat": cgnat_raw if isinstance(cgnat_raw, dict) else None,
+    })
+
+
+# ── Informations détaillées d'un appareil par MAC ────────────────────────────
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/device/info",
+    vol.Required("mac"): str,
+})
+@websocket_api.async_response
+async def ws_get_device_info(hass, connection, msg):
+    """Retourne les informations complètes d'un appareil (Devices.Device.<mac>:get)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    mac = msg["mac"]
+    result = await _safe_post(coordinator, f"Devices.Device.{mac}", "get")
+    connection.send_result(msg["id"], result if isinstance(result, dict) else {})
+
+
+# ── Planning d'accès WAN par appareil (Scheduler.ToD) ────────────────────────
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/device/wan_access",
+    vol.Required("mac"): str,
+})
+@websocket_api.async_response
+async def ws_get_device_wan_access(hass, connection, msg):
+    """Retourne le planning d'accès WAN d'un appareil (Scheduler.ToD)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    mac = msg["mac"]
+    # Use coordinator cache first (already fetched during update)
+    schedule = coordinator.data.get("devices_wan_access", {}).get(mac)
+    connection.send_result(msg["id"], schedule if schedule is not None else {})
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/device/wan_access/set",
+    vol.Required("mac"): str,
+    vol.Required("blocked"): bool,
+})
+@websocket_api.async_response
+async def ws_set_device_wan_access(hass, connection, msg):
+    """Bloque ou débloque l'accès WAN d'un appareil via le planificateur Livebox."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    mac = msg["mac"]
+    blocked = msg["blocked"]
+    try:
+        # Check if schedule already exists
+        raw = await coordinator.api.devices._auth.post(
+            "Scheduler", "getSchedule", {"type": "ToD", "ID": mac}
+        )
+        has_schedule = isinstance(raw, dict) and bool(raw.get("status"))
+
+        if blocked:
+            if has_schedule:
+                await coordinator.api.devices._auth.post(
+                    "Scheduler", "overrideSchedule",
+                    {"type": "ToD", "ID": mac, "override": "Disable"}
+                )
+            else:
+                await coordinator.api.devices._auth.post(
+                    "Scheduler", "addSchedule",
+                    {"type": "ToD", "info": {
+                        "ID": mac,
+                        "base": "Weekly",
+                        "def": "Enable",
+                        "schedule": [],
+                        "enable": True,
+                        "override": "Disable",
+                    }}
+                )
+        else:
+            # Unblock: if schedule exists, override to Enable
+            if has_schedule:
+                await coordinator.api.devices._auth.post(
+                    "Scheduler", "overrideSchedule",
+                    {"type": "ToD", "ID": mac, "override": "Enable"}
+                )
+        await coordinator.async_request_refresh()
+        connection.send_result(msg["id"], {"status": "ok", "blocked": blocked})
+    except Exception as err:
+        connection.send_error(msg["id"], "wan_access_set_failed", str(err))
+
+
+# ── Informations détaillées d'un répéteur (connexion sysbus directe) ─────────
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/repeater/info",
+    vol.Required("key"): str,
+})
+@websocket_api.async_response
+async def ws_get_repeater_info(hass, connection, msg):
+    """Retourne les informations détaillées d'un répéteur via une session sysbus directe.
+
+    Nécessite que l'IP et les identifiants soient configurés dans le store répéteur.
+    """
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    key = msg["key"]
+    store_entry = coordinator.repeater_store.get(key)
+    ip = store_entry.get("ip", "")
+    username = store_entry.get("username", "")
+    password = store_entry.get("password", "")
+
+    if not ip or not username or not password:
+        connection.send_error(
+            msg["id"], "not_configured",
+            "IP et/ou identifiants manquants — configurez d'abord le répéteur dans l'onglet Administration > Répéteurs."
+        )
+        return
+
+    repeater_api = None
+    try:
+        session = async_create_clientsession(hass)
+        repeater_api = AIOSysbus(
+            username=username,
+            password=password,
+            session=session,
+            host=ip,
+            port=80,
+            use_tls=False,
+        )
+        await repeater_api.async_connect()
+
+        async def _rpost(obj, fn, conf=None):
+            try:
+                if conf is not None:
+                    raw = await repeater_api._auth.post(obj, fn, conf)
+                else:
+                    raw = await repeater_api._auth.post(obj, fn)
+                return raw.get("status") if isinstance(raw, dict) else raw
+            except Exception:
+                return None
+
+        device_info = await _rpost("DeviceInfo", "get")
+        nmc_wifi = await _rpost("NMC.Wifi", "get")
+        memory_raw = await _rpost("DeviceInfo.MemoryStatus", "get")
+
+        # Get associated wifi stations from repeater
+        stations_raw = await _rpost("NeMo.Intf.lan", "getMIBs", {"mibs": "wlanvap"})
+        stations = {}
+        if isinstance(stations_raw, dict):
+            wlanvap = stations_raw.get("wlanvap", {})
+            if isinstance(wlanvap, dict):
+                stations = wlanvap
+
+        connection.send_result(msg["id"], {
+            "device_info": device_info if isinstance(device_info, dict) else {},
+            "wifi": nmc_wifi if isinstance(nmc_wifi, dict) else {},
+            "memory": {
+                "total_mb": round(memory_raw["Total"] / 1024, 0) if isinstance(memory_raw, dict) and memory_raw.get("Total") else None,
+                "free_mb": round(memory_raw["Free"] / 1024, 0) if isinstance(memory_raw, dict) and memory_raw.get("Free") else None,
+            } if memory_raw else {},
+            "stations": stations,
+        })
+    except Exception as err:
+        connection.send_error(msg["id"], "repeater_info_failed", str(err))
+    finally:
+        if repeater_api is not None:
+            try:
+                await repeater_api.async_disconnect()
+            except Exception:
+                pass
+
+
+# ── Wifi global on/off + guest Wifi ──────────────────────────────────────────
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/wifi/global/toggle",
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_wifi_global_toggle(hass, connection, msg):
+    """Active ou désactive le Wifi (NMC.Wifi:set {Enable, Status})."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    enabled = msg["enabled"]
+    try:
+        await coordinator.api.devices._auth.post(
+            "NMC.Wifi", "set", {"Enable": enabled, "Status": enabled}
+        )
+        connection.send_result(msg["id"], {"status": "ok", "enabled": enabled})
+    except Exception as err:
+        connection.send_error(msg["id"], "wifi_toggle_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/wifi/guest/toggle",
+    vol.Required("enabled"): bool,
+    vol.Optional("timer_hours"): int,
+})
+@websocket_api.async_response
+async def ws_guest_wifi_toggle(hass, connection, msg):
+    """Active ou désactive le Wifi invité avec timer optionnel (NMC.Guest:set)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    enabled = msg["enabled"]
+    timer_hours = msg.get("timer_hours", 0)
+    try:
+        await coordinator.api.devices._auth.post("NMC.Guest", "set", {"Enable": enabled})
+        if enabled and timer_hours:
+            await _safe_post(
+                coordinator, "NMC.WlanTimer", "setActivationTimer",
+                {"Timeout": timer_hours, "InterfaceName": "guest"}
+            )
+        elif not enabled:
+            await _safe_post(
+                coordinator, "NMC.WlanTimer", "disableActivationTimer",
+                {"InterfaceName": "guest"}
+            )
+        connection.send_result(msg["id"], {"status": "ok", "enabled": enabled})
+    except Exception as err:
+        connection.send_error(msg["id"], "guest_wifi_toggle_failed", str(err))
+
+
+# ── DynDNS global enable/disable ─────────────────────────────────────────────
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/ddns/global/toggle",
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_ddns_global_toggle(hass, connection, msg):
+    """Active ou désactive globalement le service DynDNS (DynDNS:setGlobalEnable)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    enabled = msg["enabled"]
+    try:
+        await coordinator.api.devices._auth.post(
+            "DynDNS", "setGlobalEnable", {"enable": enabled}
+        )
+        connection.send_result(msg["id"], {"status": "ok", "enabled": enabled})
+    except Exception as err:
+        connection.send_error(msg["id"], "ddns_global_toggle_failed", str(err))
