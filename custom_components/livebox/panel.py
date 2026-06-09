@@ -1733,7 +1733,7 @@ async def _get_vap_info(coordinator, iface: str) -> dict | None:
                 stations.append({
                     "mac": s.get("MACAddress"),
                     "ip": s.get("IPAddress"),
-                    "rssi": s.get("LastDataUplinkRate") or s.get("SignalStrength"),
+                    "rssi": s.get("SignalStrength"),
                     "noise": s.get("Noise"),
                     "tx_rate": s.get("LastDataDownlinkRate"),
                     "rx_rate": s.get("LastDataUplinkRate"),
@@ -1746,7 +1746,7 @@ async def _get_vap_info(coordinator, iface: str) -> dict | None:
                 stations.append({
                     "mac": s.get("MACAddress"),
                     "ip": s.get("IPAddress"),
-                    "rssi": s.get("LastDataUplinkRate") or s.get("SignalStrength"),
+                    "rssi": s.get("SignalStrength"),
                     "noise": s.get("Noise"),
                     "tx_rate": s.get("LastDataDownlinkRate"),
                     "rx_rate": s.get("LastDataUplinkRate"),
@@ -1762,7 +1762,7 @@ async def _get_vap_info(coordinator, iface: str) -> dict | None:
         "hidden": not raw.get("SSIDAdvertisementEnabled", True),
         "mac_filter": raw.get("MACFilterAddressList"),
         "max_assoc": raw.get("MaxAssociatedDevices"),
-        "station_count": raw.get("ActiveAssociatedDeviceNumberOfEntries", 0),
+        "station_count": len(stations),  # ActiveAssociatedDeviceNumberOfEntries is unreliable
         "stations": stations,
     }
 
