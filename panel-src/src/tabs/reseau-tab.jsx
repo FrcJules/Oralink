@@ -148,7 +148,7 @@ function RenameRow({ lease, onSaved, onCancel }) {
   );
 }
 
-function LeaseTable({ leases, empty, onRefresh }) {
+function LeaseTable({ leases, empty, onRefresh, allowRename = false }) {
   const [editing, setEditing] = useState(null);
   if (!leases?.length) return <p className="text-sm lb-text-muted">{empty}</p>;
   return (
@@ -159,12 +159,12 @@ function LeaseTable({ leases, empty, onRefresh }) {
             <th className="py-1.5 pr-3">Nom</th>
             <th className="py-1.5 pr-3">IP</th>
             <th className="py-1.5 pr-3">MAC</th>
-            <th className="py-1.5 pr-3" />
+            {allowRename && <th className="py-1.5 pr-3" />}
           </tr>
         </thead>
         <tbody>
           {leases.map((l, i) => (
-            editing === (l.mac || i)
+            allowRename && editing === (l.mac || i)
               ? <RenameRow key={l.mac || i} lease={l}
                   onCancel={() => setEditing(null)}
                   onSaved={() => { setEditing(null); onRefresh(); }} />
@@ -172,13 +172,15 @@ function LeaseTable({ leases, empty, onRefresh }) {
                   <td className="py-1.5 pr-3 font-medium">{l.name || "—"}</td>
                   <td className="py-1.5 pr-3 lb-text-muted">{l.ip || "—"}</td>
                   <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{l.mac || "—"}</td>
-                  <td className="py-1.5 pr-3 text-right">
-                    {l.mac && (
-                      <button onClick={() => setEditing(l.mac || i)} className="text-xs lb-text-muted hover:underline">
-                        ✏️ Renommer
-                      </button>
-                    )}
-                  </td>
+                  {allowRename && (
+                    <td className="py-1.5 pr-3 text-right">
+                      {l.mac && (
+                        <button onClick={() => setEditing(l.mac || i)} className="text-xs lb-text-muted hover:underline">
+                          ✏️ Renommer
+                        </button>
+                      )}
+                    </td>
+                  )}
                 </tr>
           ))}
         </tbody>
@@ -193,10 +195,7 @@ function DhcpSection() {
     <>
       <Card title="Baux DHCP actifs">
         <StateBox loading={loading} error={error} />
-        <p className="mb-2 text-xs lb-text-muted">
-          Renommer un appareil ici le change partout dans Oralink (Appareils, Topologie…) et pour tout le monde.
-        </p>
-        {data && <LeaseTable leases={data.active} empty="Aucun bail actif." onRefresh={refresh} />}
+        {data && <LeaseTable leases={data.active} empty="Aucun bail actif." onRefresh={refresh} allowRename />}
       </Card>
       <Card title="Baux statiques (réservations)">
         {data && <LeaseTable leases={data.static} empty="Aucune réservation DHCP statique." onRefresh={refresh} />}

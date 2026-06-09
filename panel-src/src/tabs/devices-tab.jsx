@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Zap, X, Lock, Unlock } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUpDown, Zap, X, Lock, Unlock, Pencil, Check } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -72,13 +72,16 @@ function Row({ label, value }) {
   );
 }
 
-function DeviceDetailDrawer({ device, onClose }) {
+function DeviceDetailDrawer({ device, onClose, onRenamed }) {
   const runAction = useWsAction();
   const [info, setInfo] = useState(null);
   const [infoLoading, setInfoLoading] = useState(false);
   const [schedule, setSchedule] = useState(null);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [blocking, setBlocking] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState(device.name);
+  const [savingName, setSavingName] = useState(false);
 
   // Fetch detailed device info on mount
   useState(() => {
@@ -100,6 +103,20 @@ function DeviceDetailDrawer({ device, onClose }) {
 
   const isBlocked = schedule?.scheduleInfo?.override === "Disable" && schedule?.scheduleInfo?.value === "Disable";
 
+  const handleRename = async () => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === device.name) { setRenaming(false); return; }
+    setSavingName(true);
+    try {
+      await runAction(
+        { type: "livebox/dns/set", mac: device.mac, hostname: trimmed },
+        { success: `Appareil renommé en « ${trimmed} ».` },
+      );
+      setRenaming(false);
+      onRenamed?.();
+    } finally { setSavingName(false); }
+  };
+
   const handleBlock = async (block) => {
     setBlocking(true);
     try {
@@ -119,13 +136,38 @@ function DeviceDetailDrawer({ device, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 flex items-center justify-between border-b lb-border bg-[var(--card-background-color)] p-4">
-          <div>
-            <p className="font-semibold lb-text">{device.name}</p>
+          <div className="flex-1 min-w-0 mr-2">
+            {renaming ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleRename(); if (e.key === "Escape") { setRenaming(false); setNewName(device.name); } }}
+                  autoFocus
+                  className="lb-input flex-1 text-sm py-0.5"
+                />
+                <button onClick={handleRename} disabled={savingName} className="rounded-md p-1 text-emerald-600 hover:bg-emerald-50 disabled:opacity-40">
+                  <Check className="size-4" />
+                </button>
+                <button onClick={() => { setRenaming(false); setNewName(device.name); }} className="rounded-md p-1 hover:bg-[var(--secondary-background-color)]">
+                  <X className="size-4 lb-text-muted" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <p className="font-semibold lb-text truncate">{device.name}</p>
+                <button onClick={() => setRenaming(true)} className="rounded p-0.5 hover:bg-[var(--secondary-background-color)] flex-shrink-0" title="Renommer">
+                  <Pencil className="size-3.5 lb-text-muted" />
+                </button>
+              </div>
+            )}
             <p className="text-xs lb-text-muted">{device.mac}</p>
           </div>
-          <button onClick={onClose} className="rounded-md p-1 hover:bg-[var(--secondary-background-color)]">
-            <X className="size-5 lb-text-muted" />
-          </button>
+          {!renaming && (
+            <button onClick={onClose} className="rounded-md p-1 hover:bg-[var(--secondary-background-color)] flex-shrink-0">
+              <X className="size-5 lb-text-muted" />
+            </button>
+          )}
         </div>
 
         <div className="space-y-4 p-4">
@@ -213,7 +255,11 @@ export function DevicesTab() {
   return (
     <>
       {selectedDevice && (
-        <DeviceDetailDrawer device={selectedDevice} onClose={() => setSelectedDevice(null)} />
+        <DeviceDetailDrawer
+          device={selectedDevice}
+          onClose={() => setSelectedDevice(null)}
+          onRenamed={() => setSelectedDevice(null)}
+        />
       )}
       <Card title={`Appareils${data ? ` (${data.length})` : ""}`}>
         <StateBox loading={loading} error={error} />
