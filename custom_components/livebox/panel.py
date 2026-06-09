@@ -810,10 +810,11 @@ async def ws_dns_set(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        # Set the device HostName via the devices API
-        await coordinator._make_request(
-            coordinator.api.devices.async_set_device,
-            {"key": msg["mac"], "parameters": {"UserFriendlyName": msg["hostname"]}},
+        mac = msg["mac"]
+        name = msg["hostname"]
+        # setName with no source sets the "webui" label, visible everywhere in Oralink
+        await coordinator.api.devices._auth.post(
+            f"Devices.Device.{mac}", "setName", {"name": name}
         )
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "ok"})
