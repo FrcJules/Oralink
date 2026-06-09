@@ -837,7 +837,7 @@ async def ws_dns_set(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        mac = msg["mac"]
+        mac = msg["mac"].upper()
         name = msg["hostname"]
         # setName with no source sets the "webui" label, visible everywhere in Oralink
         await coordinator.api.devices._auth.post(
@@ -1028,7 +1028,7 @@ async def ws_set_device_type(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        mac = msg["mac"]
+        mac = msg["mac"].upper()
         device_type = msg["device_type"]
         await coordinator.api.devices._auth.post(
             f"Devices.Device.{mac}", "setType", {"type": device_type}
@@ -2178,7 +2178,7 @@ async def ws_get_device_info(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    mac = msg["mac"]
+    mac = msg["mac"].upper()
     result = await _safe_post(coordinator, f"Devices.Device.{mac}", "get")
     connection.send_result(msg["id"], result if isinstance(result, dict) else {})
 
@@ -2196,9 +2196,10 @@ async def ws_get_device_wan_access(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    mac = msg["mac"]
-    # Use coordinator cache first (already fetched during update)
-    schedule = coordinator.data.get("devices_wan_access", {}).get(mac)
+    mac = msg["mac"].upper()
+    # Coordinator may key by original case — try both
+    wan_access = coordinator.data.get("devices_wan_access", {})
+    schedule = wan_access.get(mac) or wan_access.get(msg["mac"])
     connection.send_result(msg["id"], schedule if schedule is not None else {})
 
 
@@ -2214,7 +2215,7 @@ async def ws_set_device_wan_access(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    mac = msg["mac"]
+    mac = msg["mac"].upper()
     blocked = msg["blocked"]
     try:
         # Check if schedule already exists
