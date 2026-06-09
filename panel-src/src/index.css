@@ -99,6 +99,15 @@
     background: var(--secondary-background-color, #f8fafc);
   }
 
+  /* Hide scrollbar while keeping scrollability (tab bar on mobile) */
+  .scrollbar-none {
+    scrollbar-width: none;         /* Firefox */
+    -ms-overflow-style: none;      /* IE/Edge */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;                 /* Chrome/Safari */
+  }
+
   /* Champs de formulaire — bordure bien visible (pas juste un fond plat) +
      halo couleur de marque au focus, pour que les formulaires se distinguent
      clairement du reste de la carte. */

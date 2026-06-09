@@ -75,6 +75,8 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_delete_contact)
     # Graphiques de trafic (historique en mémoire)
     websocket_api.async_register_command(hass, ws_get_graphs)
+    websocket_api.async_register_command(hass, ws_get_graphs_device)
+    websocket_api.async_register_command(hass, ws_get_graphs_device_list)
     # Journal d'événements (connexions/déconnexions)
     websocket_api.async_register_command(hass, ws_get_events)
     # Décodeurs TV Orange (pilotage HTTP direct)
@@ -1322,6 +1324,40 @@ def ws_get_graphs(hass, connection, msg):
     connection.send_result(msg["id"], coordinator.traffic_history)
 
 
+@callback
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/graphs/device",
+    vol.Required("mac"): str,
+})
+def ws_get_graphs_device(hass, connection, msg):
+    """Historique de trafic par appareil (keyed by MAC, oldest first)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], coordinator.get_device_history(msg["mac"]))
+
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/graphs/devices"})
+def ws_get_graphs_device_list(hass, connection, msg):
+    """Liste des appareils pour lesquels un historique de trafic est disponible."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    devices = coordinator.data.get("devices", {})
+    result = []
+    for mac in coordinator.device_history_keys:
+        d = devices.get(mac, {})
+        result.append({
+            "mac": mac,
+            "name": d.get("Name", mac),
+        })
+    result.sort(key=lambda x: x["name"].lower())
+    connection.send_result(msg["id"], result)
+
+
 # ── Journal d'événements (connexions/déconnexions) ───────────────────────────
 
 @callback
@@ -1483,7 +1519,30 @@ async def ws_speedtest_results(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     raw = await _safe_post(coordinator, "SpeedTest", "getWANResults")
-    connection.send_result(msg["id"], raw if isinstance(raw, dict) else {})
+    if not isinstance(raw, dict):
+        connection.send_result(msg["id"], {"no_data": True})
+        return
+
+    def _clean_direction(d: dict) -> dict | None:
+        if not isinstance(d, dict):
+            return None
+        rate = d.get("rate") or 0
+        start = d.get("start") or ""
+        if rate == 0 and start in ("", "0001-01-01T00:00:00Z"):
+            return None
+        return {
+            "rate_mbit": round(rate / 1_000_000, 2) if rate > 1_000_000 else round(rate / 1000, 2),
+            "latency_ms": d.get("latency"),
+            "start": start,
+            "end": d.get("end"),
+        }
+
+    ds = _clean_direction(raw.get("Downstream") or raw.get("downstream"))
+    us = _clean_direction(raw.get("Upstream") or raw.get("upstream"))
+    if ds is None and us is None:
+        connection.send_result(msg["id"], {"no_data": True})
+        return
+    connection.send_result(msg["id"], {"downstream": ds, "upstream": us})
 
 
 # ── Wake-on-LAN ───────────────────────────────────────────────────────────────

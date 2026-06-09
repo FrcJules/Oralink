@@ -23,10 +23,12 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import LiveboxConfigEntry
-from .const import DOWNLOAD_ICON, PHONE_ICON, UPLOAD_ICON
+from .const import DOMAIN, DOWNLOAD_ICON, PHONE_ICON, UPLOAD_ICON
 from .coordinator import LiveboxDataUpdateCoordinator
 from .entity import LiveboxEntity
 from .helpers import find_item
@@ -446,6 +448,22 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
+    # Per-device traffic rate sensors
+    device_entities: list[SensorEntity] = []
+    for mac, device in coordinator.data.get("devices", {}).items():
+        t = coordinator.data.get("device_traffic", {}).get(mac, {})
+        if t.get("rate_rx", 0) > 0 or t.get("rate_tx", 0) > 0:
+            device_key = device.get("Key") or mac
+            device_name = device.get("Name") or mac
+            device_entities.append(
+                LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "rx")
+            )
+            device_entities.append(
+                LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "tx")
+            )
+    if device_entities:
+        async_add_entities(device_entities)
+
 
 class LiveboxSensor(LiveboxEntity, SensorEntity):  # pyrefly: ignore[inconsistent-inheritance]
     """Representation of a livebox sensor."""
@@ -474,3 +492,45 @@ class LiveboxSensor(LiveboxEntity, SensorEntity):  # pyrefly: ignore[inconsisten
                 for key, attr in description.attrs.items()
             }
         return None
+
+
+class LiveboxDeviceTrafficSensor(CoordinatorEntity[LiveboxDataUpdateCoordinator], SensorEntity):  # pyrefly: ignore[inconsistent-inheritance]
+    """Per-device traffic rate sensor (rx or tx in Mbit/s)."""
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
+    _attr_suggested_unit_of_measurement = UnitOfDataRate.MEGABITS_PER_SECOND
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_device_class = SensorDeviceClass.DATA_RATE
+
+    def __init__(
+        self,
+        coordinator: LiveboxDataUpdateCoordinator,
+        device_key: str,
+        device_name: str,
+        mac: str,
+        direction: str,  # "rx" or "tx"
+    ) -> None:
+        """Initialize the per-device traffic sensor."""
+        super().__init__(coordinator)
+        self._device_key = device_key
+        self._mac = mac
+        self._direction = direction
+
+        arrow = "↓" if direction == "rx" else "↑"
+        self._attr_name = f"Débit {arrow}"
+        self._attr_unique_id = f"{coordinator.unique_id or DOMAIN}_device_{device_key}_rate_{direction}"
+        self._attr_icon = DOWNLOAD_ICON if direction == "rx" else UPLOAD_ICON
+
+        # Link this sensor to the HA device created by the device_tracker platform
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_key)},
+            name=device_name,
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current traffic rate."""
+        t = self.coordinator.data.get("device_traffic", {}).get(self._mac, {})
+        val = t.get(f"rate_{self._direction}")
+        return val

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Zap } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
@@ -64,15 +64,8 @@ function WolButton({ mac }) {
 }
 
 export function DevicesTab() {
-  const { data, loading, error, refresh } = useWsData("livebox/devices");
+  const { data, loading, error } = useWsData("livebox/devices", {}, 3_000);
   const [sort, setSort] = useState({ key: "name", direction: "asc" });
-
-  // Rafraîchissement automatique toutes les 30 s pour refléter les débits
-  // mis à jour à chaque cycle coordinator (~1 min).
-  useEffect(() => {
-    const id = setInterval(refresh, 30_000);
-    return () => clearInterval(id);
-  }, [refresh]);
 
   const handleSort = (key) => {
     setSort((s) => (s.key === key
@@ -95,14 +88,7 @@ export function DevicesTab() {
   }, [data, sort]);
 
   return (
-    <Card
-      title={`Appareils${data ? ` (${data.length})` : ""}`}
-      actions={
-        <button onClick={refresh} className="rounded-md border lb-border px-2.5 py-1 text-xs hover:bg-[var(--secondary-background-color)]">
-          ↻ Rafraîchir
-        </button>
-      }
-    >
+    <Card title={`Appareils${data ? ` (${data.length})` : ""}`}>
       <StateBox loading={loading} error={error} />
       {sorted && (
         <div className="overflow-x-auto">

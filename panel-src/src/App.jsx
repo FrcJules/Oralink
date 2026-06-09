@@ -1,35 +1,27 @@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs.jsx";
 import { useHass } from "./lib/hass-context.jsx";
+import { OverviewTab } from "./tabs/overview-tab.jsx";
 import { DevicesTab } from "./tabs/devices-tab.jsx";
-import { NetworkTab } from "./tabs/network-tab.jsx";
-import { DhcpTab } from "./tabs/dhcp-tab.jsx";
-import { NatTab } from "./tabs/nat-tab.jsx";
-import { TopologyTab } from "./tabs/topology-tab.jsx";
-import { AdvancedTab } from "./tabs/advanced-tab.jsx";
-import { RepeatersTab } from "./tabs/repeaters-tab.jsx";
-import { SystemTab } from "./tabs/system-tab.jsx";
-import { PhoneTab } from "./tabs/phone-tab.jsx";
+import { ReseauTab } from "./tabs/reseau-tab.jsx";
+import { WifiTab } from "./tabs/wifi-tab.jsx";
 import { GraphsTab } from "./tabs/graphs-tab.jsx";
+import { AdministrationTab } from "./tabs/administration-tab.jsx";
+import { TopologyTab } from "./tabs/topology-tab.jsx";
+import { PhoneTab } from "./tabs/phone-tab.jsx";
 import { EventsTab } from "./tabs/events-tab.jsx";
 import { TvDecoderTab } from "./tabs/tv-decoder-tab.jsx";
-import { WifiTab } from "./tabs/wifi-tab.jsx";
-import { DiagnosticsTab } from "./tabs/diagnostics-tab.jsx";
 
 const TABS = [
-  { id: "devices", label: "Appareils", render: () => <DevicesTab /> },
-  { id: "network", label: "Réseau", render: () => <NetworkTab /> },
-  { id: "wifi", label: "Wifi", render: () => <WifiTab /> },
-  { id: "dhcp", label: "DHCP", render: () => <DhcpTab /> },
-  { id: "nat", label: "NAT", render: () => <NatTab /> },
-  { id: "topology", label: "Topologie", render: () => <TopologyTab /> },
-  { id: "repeaters", label: "Répéteurs", render: () => <RepeatersTab /> },
-  { id: "events", label: "Événements", render: () => <EventsTab /> },
-  { id: "graphs", label: "Graphiques", render: () => <GraphsTab /> },
-  { id: "phone", label: "Téléphone", render: () => <PhoneTab /> },
-  { id: "system", label: "Système", render: () => <SystemTab /> },
-  { id: "advanced", label: "Avancé", render: () => <AdvancedTab /> },
-  { id: "diagnostics", label: "Diagnostics", render: () => <DiagnosticsTab /> },
-  { id: "tv", label: "Décodeurs TV", render: () => <TvDecoderTab /> },
+  { id: "overview",        label: "Vue d'ensemble", render: () => <OverviewTab /> },
+  { id: "devices",         label: "Appareils",       render: () => <DevicesTab /> },
+  { id: "reseau",          label: "Réseau",           render: () => <ReseauTab /> },
+  { id: "wifi",            label: "Wifi",             render: () => <WifiTab /> },
+  { id: "graphs",          label: "Graphiques",       render: () => <GraphsTab /> },
+  { id: "administration",  label: "Administration",   render: () => <AdministrationTab /> },
+  { id: "topology",        label: "Topologie",        render: () => <TopologyTab /> },
+  { id: "phone",           label: "Téléphone",        render: () => <PhoneTab /> },
+  { id: "events",          label: "Événements",       render: () => <EventsTab /> },
+  { id: "tv",              label: "Décodeurs TV",     render: () => <TvDecoderTab /> },
 ];
 
 export default function App() {
@@ -55,9 +47,10 @@ export default function App() {
       </header>
 
       <Tabs defaultValue={TABS[0].id}>
-        <TabsList>
+        {/* Tab bar: scrollable on mobile, wrapped flex on larger screens */}
+        <TabsList className="w-full overflow-x-auto flex-nowrap md:flex-wrap h-auto">
           {TABS.map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id}>
+            <TabsTrigger key={tab.id} value={tab.id} className="whitespace-nowrap text-xs md:text-sm flex-shrink-0">
               {tab.label}
             </TabsTrigger>
           ))}

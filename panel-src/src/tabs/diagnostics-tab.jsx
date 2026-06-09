@@ -83,9 +83,29 @@ function flattenObject(obj, prefix = "") {
   });
 }
 
+function SpeedResultCard({ label, data }) {
+  if (!data) return null;
+  return (
+    <div className="rounded-lg border lb-border p-3">
+      <p className="mb-2 text-xs font-semibold uppercase lb-text-muted">{label}</p>
+      <p className="text-2xl font-bold lb-text tabular-nums">
+        {data.rate_mbit} <span className="text-sm font-normal lb-text-muted">Mbit/s</span>
+      </p>
+      {data.latency_ms != null && (
+        <p className="text-sm lb-text-muted">Latence : {data.latency_ms} ms</p>
+      )}
+      {data.start && data.start !== "0001-01-01T00:00:00Z" && (
+        <p className="mt-1 text-xs lb-text-muted">
+          {new Date(data.start).toLocaleString("fr-FR")} → {new Date(data.end).toLocaleString("fr-FR")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SpeedTestSection() {
   const runAction = useWsAction();
-  const [rows, setRows] = useState(null);
+  const [result, setResult] = useState(undefined);
   const [fetching, setFetching] = useState(false);
 
   const fetchResults = async () => {
@@ -95,12 +115,7 @@ function SpeedTestSection() {
         { type: "livebox/speedtest/results" },
         { error: "Impossible de récupérer les résultats." },
       );
-      // Remove sysbus noise keys (status: null means no error status, not a result)
-      const cleaned = Object.fromEntries(
-        Object.entries(data ?? {}).filter(([k, v]) => k !== "status" || v != null)
-      );
-      const flat = flattenObject(cleaned);
-      setRows(flat.length > 0 ? flat : []);
+      setResult(data ?? null);
     } catch {
       // déjà notifié
     } finally {
@@ -117,25 +132,19 @@ function SpeedTestSection() {
       }
     >
       <p className="mb-3 text-sm lb-text-muted">
-        Récupère les derniers résultats de test de débit mémorisés par la Livebox
-        (tests déclenchés depuis l'interface Orange, pas en temps réel depuis Oralink).
+        Derniers résultats mémorisés par la Livebox (tests lancés depuis l'interface Orange).
       </p>
-      <button
-        onClick={fetchResults}
-        disabled={fetching}
-        className="lb-btn-primary mb-3"
-      >
+      <button onClick={fetchResults} disabled={fetching} className="lb-btn-primary mb-3">
         {fetching ? "Récupération…" : "Afficher les résultats"}
       </button>
 
-      {rows !== null && (
-        rows.length === 0 ? (
-          <p className="text-sm lb-text-muted">Aucun résultat disponible. Lancez d'abord un test depuis l'interface Livebox.</p>
+      {result !== undefined && (
+        result?.no_data || (!result?.downstream && !result?.upstream) ? (
+          <p className="text-sm lb-text-muted">Aucun résultat disponible — lancez d'abord un test depuis l'interface web Orange.</p>
         ) : (
-          <div className="rounded-lg border lb-border p-3">
-            {rows.map(({ label, value }) => (
-              <Row key={label} label={label} value={value} />
-            ))}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SpeedResultCard label="Débit descendant ↓" data={result?.downstream} />
+            <SpeedResultCard label="Débit montant ↑" data={result?.upstream} />
           </div>
         )
       )}

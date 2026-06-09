@@ -61,6 +61,8 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
 
         # Rolling in-memory history for the "Graphiques" tab (~12h at 1 update/min)
         self._traffic_history: deque[dict[str, Any]] = deque(maxlen=720)
+        # Per-device traffic history keyed by MAC address (~12h at 1 update/min)
+        self._device_history: dict[str, deque[dict[str, Any]]] = {}
         # Rolling connection/disconnection log for the "Événements" tab
         self._event_log: deque[dict[str, Any]] = deque(maxlen=300)
 
@@ -594,8 +596,9 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             wan_rate_rx = round(max(0, wan_rx - prev_rx) / 60 * 8 / 1_000_000, 3)
             wan_rate_tx = round(max(0, wan_tx - prev_tx) / 60 * 8 / 1_000_000, 3)
 
+        now_str = str(datetime.now(tz=DEFAULT_TIME_ZONE))
         self._traffic_history.append({
-            "time": str(datetime.now(tz=DEFAULT_TIME_ZONE)),
+            "time": now_str,
             "rate_rx": rate_rx,
             "rate_tx": rate_tx,
             "wan_rate_rx": wan_rate_rx,
@@ -603,6 +606,18 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             "wan_rx_bytes": wan_rx,
             "wan_tx_bytes": wan_tx,
         })
+
+        # Per-device history — only for devices that have traffic data
+        for mac, t in device_traffic.items():
+            if t.get("rate_rx", 0) > 0 or t.get("rate_tx", 0) > 0:
+                if mac not in self._device_history:
+                    self._device_history[mac] = deque(maxlen=720)
+                self._device_history[mac].append({
+                    "time": now_str,
+                    "rate_rx": t.get("rate_rx", 0),
+                    "rate_tx": t.get("rate_tx", 0),
+                })
+
         await self.traffic_history_store.async_save(list(self._traffic_history))
 
     @property
@@ -614,6 +629,16 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
     def traffic_history(self) -> list[dict[str, Any]]:
         """Aggregate traffic samples collected over time (oldest first)."""
         return list(self._traffic_history)
+
+    def get_device_history(self, mac: str) -> list[dict[str, Any]]:
+        """Per-device traffic samples for the given MAC (oldest first)."""
+        dq = self._device_history.get(mac)
+        return list(dq) if dq else []
+
+    @property
+    def device_history_keys(self) -> list[str]:
+        """MACs for which we have per-device traffic history."""
+        return list(self._device_history.keys())
 
     async def async_get_port_forwarding(self) -> list[dict[str, Any]]:
         """Get port forwarding."""
