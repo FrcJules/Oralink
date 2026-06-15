@@ -56,7 +56,7 @@ function WolButton({ mac }) {
       onClick={handleWake}
       disabled={waking}
       title="Wake-on-LAN"
-      className="rounded border lb-border p-0.5 hover:bg-[var(--secondary-background-color)] disabled:opacity-40"
+      className="rounded border lb-border p-2 hover:bg-[var(--secondary-background-color)] disabled:opacity-40"
     >
       <Zap className="size-3.5 lb-text-muted" />
     </button>
@@ -132,7 +132,7 @@ function DeviceDetailDrawer({ device, onClose, onRenamed }) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-end bg-black/30" onClick={onClose}>
       <div
-        className="relative h-full w-full max-w-md overflow-y-auto bg-[var(--card-background-color)] shadow-xl"
+        className="relative h-full w-full sm:max-w-md overflow-y-auto bg-[var(--card-background-color)] shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 flex items-center justify-between border-b lb-border bg-[var(--card-background-color)] p-4">
@@ -264,9 +264,9 @@ export function DevicesTab() {
       <Card title={`Appareils${data ? ` (${data.length})` : ""}`}>
         <StateBox loading={loading} error={error} />
         {sorted && (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
             <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase lb-text-muted">
+              <thead className="sticky top-0 text-xs uppercase lb-text-muted bg-[var(--card-background-color)]">
                 <tr>
                   {COLUMNS.map((col) => (
                     <th key={col.key} className="py-1.5 pr-3">

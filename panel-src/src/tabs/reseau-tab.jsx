@@ -1,10 +1,10 @@
 /**
  * Onglet Réseau — combine :
  *   • Interfaces live (NeMo.Intf, 3 s)
- *   • DHCP (baux actifs, statiques, Wifi invité)
+ *   • DHCP (statiques, dynamiques, Wifi invité)
  *   • NAT / redirection de ports
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -113,75 +113,113 @@ function InterfacesCard() {
 
 // ── DHCP ──────────────────────────────────────────────────────────────────────
 
-function RenameRow({ lease, onSaved, onCancel }) {
+function StaticLeaseTable({ leases, empty, onRefresh }) {
   const runAction = useWsAction();
-  const [name, setName] = useState(lease.name || "");
-  const [saving, setSaving] = useState(false);
+  const [deletingMac, setDeletingMac] = useState(null);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSaving(true);
+  const handleDelete = async (mac) => {
+    setDeletingMac(mac);
     try {
       await runAction(
-        { type: "livebox/dns/set", mac: lease.mac, hostname: name.trim() },
-        { success: `Appareil renommé en « ${name.trim()} ».` },
+        { type: "livebox/dhcp_static/delete", mac },
+        { success: `Réservation ${mac} supprimée.` },
       );
-      onSaved();
-    } catch { /* toast déjà affiché */ } finally { setSaving(false); }
+      onRefresh();
+    } catch { /* toast */ } finally { setDeletingMac(null); }
   };
 
+  if (!leases?.length) return <p className="text-sm lb-text-muted">{empty}</p>;
   return (
-    <tr className="border-t lb-border bg-[var(--secondary-background-color)]">
-      <td colSpan={4} className="py-1.5 pr-3">
-        <form onSubmit={handleSubmit} className="flex items-center gap-2">
-          <input value={name} onChange={(e) => setName(e.target.value)}
-            placeholder="Nom de l'appareil" autoFocus className="lb-input flex-1" />
-          <button type="submit" disabled={saving || !name.trim()} className="lb-btn-primary px-2.5 py-1 text-xs">
-            {saving ? "Enregistrement…" : "Enregistrer"}
-          </button>
-          <button type="button" onClick={onCancel} className="lb-btn-outline px-2.5 py-1 text-xs">
-            Annuler
-          </button>
-        </form>
-      </td>
-    </tr>
+    <div className="overflow-x-auto overflow-y-auto max-h-[45vh]">
+      <table className="w-full text-left text-sm">
+        <thead className="sticky top-0 text-xs uppercase lb-text-muted bg-[var(--card-background-color)]">
+          <tr>
+            <th className="py-1.5 pr-3">Équipement</th>
+            <th className="py-1.5 pr-3">Adresse IP statique</th>
+            <th className="py-1.5 pr-3">Adresse MAC</th>
+            <th className="py-1.5" />
+          </tr>
+        </thead>
+        <tbody>
+          {leases.map((l) => (
+            <tr key={l.mac} className="border-t lb-border">
+              <td className="py-1.5 pr-3 font-medium">{l.name || "—"}</td>
+              <td className="py-1.5 pr-3 lb-text-muted">{l.ip || "—"}</td>
+              <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{l.mac || "—"}</td>
+              <td className="py-1.5 text-right">
+                <button
+                  onClick={() => handleDelete(l.mac)}
+                  disabled={deletingMac === l.mac}
+                  className="rounded-md border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40"
+                >
+                  {deletingMac === l.mac ? "…" : "Supprimer"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
-function LeaseTable({ leases, empty, onRefresh, allowRename = false }) {
-  const [editing, setEditing] = useState(null);
+function DynamicLeaseTable({ leases, empty, onAddStatic }) {
   if (!leases?.length) return <p className="text-sm lb-text-muted">{empty}</p>;
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto overflow-y-auto max-h-[45vh]">
+      <table className="w-full text-left text-sm">
+        <thead className="sticky top-0 text-xs uppercase lb-text-muted bg-[var(--card-background-color)]">
+          <tr>
+            <th className="py-1.5 pr-3">Équipement</th>
+            <th className="py-1.5 pr-3">Adresse IP dynamique</th>
+            <th className="py-1.5 pr-3">Adresse MAC</th>
+            {onAddStatic && <th className="py-1.5" />}
+          </tr>
+        </thead>
+        <tbody>
+          {leases.map((l) => (
+            <tr key={l.mac} className="border-t lb-border">
+              <td className="py-1.5 pr-3 font-medium">{l.name || "—"}</td>
+              <td className="py-1.5 pr-3 lb-text-muted">{l.ip || "—"}</td>
+              <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{l.mac || "—"}</td>
+              {onAddStatic && (
+                <td className="py-1.5 text-right">
+                  <button
+                    onClick={() => onAddStatic(l)}
+                    className="text-xs lb-text-muted hover:underline"
+                    title="Attribuer une IP fixe"
+                  >
+                    → IP fixe
+                  </button>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SimpleLeaseTable({ leases, empty }) {
+  if (!leases?.length) return <p className="text-sm lb-text-muted">{empty}</p>;
+  return (
+    <div className="overflow-x-auto overflow-y-auto max-h-[40vh]">
       <table className="w-full text-left text-sm">
         <thead className="text-xs uppercase lb-text-muted">
           <tr>
-            <th className="py-1.5 pr-3">Nom</th>
+            <th className="py-1.5 pr-3">Équipement</th>
             <th className="py-1.5 pr-3">IP</th>
             <th className="py-1.5 pr-3">MAC</th>
-            {allowRename && <th className="py-1.5 pr-3" />}
           </tr>
         </thead>
         <tbody>
           {leases.map((l, i) => (
-            allowRename && editing === (l.mac || i)
-              ? <RenameRow key={l.mac || i} lease={l}
-                  onCancel={() => setEditing(null)}
-                  onSaved={() => { setEditing(null); onRefresh(); }} />
-              : <tr key={l.mac || i} className="border-t lb-border">
-                  <td className="py-1.5 pr-3 font-medium">{l.name || "—"}</td>
-                  <td className="py-1.5 pr-3 lb-text-muted">{l.ip || "—"}</td>
-                  <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{l.mac || "—"}</td>
-                  {allowRename && (
-                    <td className="py-1.5 pr-3 text-right">
-                      {l.mac && (
-                        <button onClick={() => setEditing(l.mac || i)} className="text-xs lb-text-muted hover:underline">
-                          ✏️ Renommer
-                        </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
+            <tr key={l.mac || i} className="border-t lb-border">
+              <td className="py-1.5 pr-3 font-medium">{l.name || "—"}</td>
+              <td className="py-1.5 pr-3 lb-text-muted">{l.ip || "—"}</td>
+              <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{l.mac || "—"}</td>
+            </tr>
           ))}
         </tbody>
       </table>
@@ -191,19 +229,142 @@ function LeaseTable({ leases, empty, onRefresh, allowRename = false }) {
 
 function DhcpSection() {
   const { data, loading, error, refresh } = useWsData("livebox/dhcp", {}, 30_000);
+  const [prefill, setPrefill] = useState(null);
+
+  const handleAddStatic = (lease) => {
+    setPrefill(lease);
+    // scroll to top of static card
+    document.getElementById("dhcp-static-card")?.scrollIntoView({ behavior: "smooth" });
+  };
+
   return (
     <>
-      <Card title="Baux DHCP actifs">
+      <Card title="DHCP statiques" id="dhcp-static-card">
         <StateBox loading={loading} error={error} />
-        {data && <LeaseTable leases={data.active} empty="Aucun bail actif." onRefresh={refresh} allowRename />}
+        {data && (
+          <>
+            <p className="mb-3 text-xs lb-text-muted">
+              Attribuez vous-même une adresse IP à votre équipement.
+            </p>
+            <AddStaticFormControlled
+              dynamicLeases={data.dynamic}
+              prefill={prefill}
+              onPrefillUsed={() => setPrefill(null)}
+              onSaved={refresh}
+            />
+            <StaticLeaseTable
+              leases={data.static}
+              empty="Aucune réservation DHCP statique."
+              onRefresh={refresh}
+            />
+          </>
+        )}
       </Card>
-      <Card title="Baux statiques (réservations)">
-        {data && <LeaseTable leases={data.static} empty="Aucune réservation DHCP statique." onRefresh={refresh} />}
+      <Card title="Baux DHCP dynamiques">
+        {data && (
+          <>
+            <p className="mb-3 text-xs lb-text-muted">
+              Équipements dont l'adresse IP est attribuée automatiquement par la Livebox.
+            </p>
+            <DynamicLeaseTable
+              leases={data.dynamic}
+              empty="Aucun bail DHCP dynamique."
+              onAddStatic={handleAddStatic}
+            />
+          </>
+        )}
       </Card>
       <Card title="Wifi invité">
-        {data && <LeaseTable leases={data.guest} empty="Aucun appareil sur le Wifi invité." onRefresh={refresh} />}
+        {data && <SimpleLeaseTable leases={data.guest} empty="Aucun appareil sur le Wifi invité." />}
       </Card>
     </>
+  );
+}
+
+function AddStaticFormControlled({ dynamicLeases, prefill, onPrefillUsed, onSaved }) {
+  const runAction = useWsAction();
+  const [open, setOpen] = useState(false);
+  const [mac, setMac] = useState("");
+  const [ip, setIp] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState(null);
+
+  // When parent pre-fills (from "→ IP fixe" button), open form and fill fields
+  useEffect(() => {
+    if (prefill) {
+      setMac(prefill.mac || "");
+      setIp(prefill.ip || "");
+      setOpen(true);
+      onPrefillUsed?.();
+    }
+  }, [prefill]);
+
+  const selectDevice = (e) => {
+    const val = e.target.value;
+    if (!val) { setMac(""); setIp(""); return; }
+    const [selMac, selIp] = val.split("|");
+    setMac(selMac || "");
+    setIp(selIp || "");
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setFormError(null);
+    setSaving(true);
+    try {
+      await runAction(
+        { type: "livebox/dhcp_static/add", mac: mac.trim(), ip: ip.trim() },
+        { success: `IP statique ${ip.trim()} attribuée à ${mac.trim()}.` },
+      );
+      setMac(""); setIp(""); setOpen(false);
+      onSaved();
+    } catch (err) { setFormError(err); } finally { setSaving(false); }
+  };
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="lb-btn-primary mb-3 text-xs">
+        + Ajouter un bail statique
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-4 rounded-lg border lb-border p-3 grid gap-2 sm:grid-cols-2">
+      {dynamicLeases?.length > 0 && (
+        <label className="flex flex-col gap-1 text-xs lb-text-muted sm:col-span-2">
+          Choisir un équipement connu
+          <select onChange={selectDevice} value={`${mac}|${ip}`} className="lb-input">
+            <option value="|">— sélectionner —</option>
+            {dynamicLeases.map((l) => (
+              <option key={l.mac} value={`${l.mac}|${l.ip}`}>
+                {l.name || l.mac} — {l.ip}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Adresse MAC
+        <input value={mac} onChange={(e) => setMac(e.target.value)} required
+          placeholder="AA:BB:CC:DD:EE:FF" className="lb-input font-mono" />
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Adresse IP statique
+        <input value={ip} onChange={(e) => setIp(e.target.value)} required
+          placeholder="192.168.1.x" className="lb-input" />
+      </label>
+      <div className="flex gap-2 sm:col-span-2">
+        <button type="submit" disabled={saving || !mac.trim() || !ip.trim()} className="lb-btn-primary">
+          {saving ? "Enregistrement…" : "Attribuer"}
+        </button>
+        <button type="button" onClick={() => { setOpen(false); setMac(""); setIp(""); setFormError(null); }}
+          className="lb-btn-outline">
+          Annuler
+        </button>
+      </div>
+      {formError && <p className="text-xs text-red-600 sm:col-span-2">Erreur : {String(formError.message ?? formError)}</p>}
+    </form>
   );
 }
 
@@ -291,9 +452,9 @@ function NatSection() {
           {data.length === 0 ? (
             <p className="text-sm lb-text-muted">Aucune règle NAT configurée.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[50vh]">
               <table className="w-full text-left text-sm">
-                <thead className="text-xs uppercase lb-text-muted">
+                <thead className="sticky top-0 text-xs uppercase lb-text-muted bg-[var(--card-background-color)]">
                   <tr>
                     <th className="py-1.5 pr-3">Nom</th>
                     <th className="py-1.5 pr-3">IP destination</th>

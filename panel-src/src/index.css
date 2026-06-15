@@ -25,10 +25,10 @@
 }
 
 #root {
-  padding: 1.25rem;
-  max-width: 1280px;
+  padding: 1.5rem;
+  max-width: 1400px;
   margin: 0 auto;
-  font: 14px/1.5 var(--paper-font-body1_-_font-family, system-ui, "Segoe UI", Roboto, sans-serif);
+  font: 15px/1.6 var(--paper-font-body1_-_font-family, system-ui, "Segoe UI", Roboto, sans-serif);
 }
 
 @layer components {
@@ -38,15 +38,15 @@
     border-color: var(--divider-color, #e2e8f0);
   }
   .lb-card-header {
-    @apply flex items-center gap-2 px-4 py-3;
+    @apply flex items-center gap-2 px-5 py-3.5;
     border-bottom: 1px solid var(--divider-color, #e2e8f0);
   }
   .lb-card-title {
-    @apply text-sm font-semibold;
+    @apply text-base font-semibold;
     color: var(--primary-text-color, #0f172a);
   }
   .lb-card-body {
-    @apply p-4;
+    @apply p-5;
   }
 
   /* Texte */
@@ -70,7 +70,7 @@
 
   /* Bouton principal — couleur de marque Oralink (orange Orange) */
   .lb-btn-primary {
-    @apply rounded-md px-3 py-1.5 text-sm font-medium transition-colors;
+    @apply rounded-md px-4 py-2 text-sm font-medium transition-colors;
     background: var(--lb-brand);
     color: var(--lb-brand-contrast);
   }
@@ -91,7 +91,7 @@
 
   /* Bouton secondaire / discret */
   .lb-btn-outline {
-    @apply rounded-md border px-3 py-1.5 text-sm font-medium transition-colors;
+    @apply rounded-md border px-4 py-2 text-sm font-medium transition-colors;
     border-color: var(--divider-color, #cbd5e1);
     color: var(--secondary-text-color, #475569);
   }
@@ -112,7 +112,7 @@
      halo couleur de marque au focus, pour que les formulaires se distinguent
      clairement du reste de la carte. */
   .lb-input {
-    @apply rounded-md px-2.5 py-1.5 text-sm transition-shadow;
+    @apply rounded-md px-3 py-2 text-sm transition-shadow;
     border: 1.5px solid var(--divider-color, #cbd5e1);
     background: var(--card-background-color, #fff);
     color: var(--primary-text-color, #0f172a);

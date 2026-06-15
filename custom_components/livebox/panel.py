@@ -132,6 +132,9 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_device_wan_access)
     # Informations détaillées d'un répéteur (connexion directe sysbus)
     websocket_api.async_register_command(hass, ws_get_repeater_info)
+    websocket_api.async_register_command(hass, ws_repeater_wifi_set)
+    websocket_api.async_register_command(hass, ws_repeater_reboot)
+    websocket_api.async_register_command(hass, ws_repeaters_scan_ips)
     # Wifi global on/off + guest Wifi
     websocket_api.async_register_command(hass, ws_wifi_global_toggle)
     websocket_api.async_register_command(hass, ws_guest_wifi_toggle)
@@ -206,15 +209,21 @@ def ws_get_dhcp(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     data = coordinator.data
-    # MAC → nom connu, pour remplir les baux statiques qui n'ont pas de nom
-    # côté Livebox (DHCPv4.getLeases ne retourne pas le FriendlyName pour eux).
+
+    # Normalize static leases first — needed for the dynamic exclusion set below.
+    static_leases_raw = data.get("dhcp_static_leases", [])
+    static_macs: set[str] = {(l.get("Mac Address") or "").upper() for l in static_leases_raw}
+
+    # Build name map from coordinator devices (key is MAC, possibly lowercase).
+    # coordinator.data["devices"] only contains WiFi devices, but it has the best
+    # friendly names (set via Devices.Device.{mac}:setName).
     mac_to_name: dict[str, str] = {
         mac.lower(): d.get("Name", "")
         for mac, d in data.get("devices", {}).items()
         if d.get("Name")
     }
 
-    def _normalize_with_fallback(lease: dict) -> dict:
+    def _normalize_static(lease: dict) -> dict:
         name = lease.get("Name") or ""
         mac = (lease.get("Mac Address") or "").lower()
         if not name and mac:
@@ -222,15 +231,37 @@ def ws_get_dhcp(hass, connection, msg):
         return {
             "name": name,
             "ip": lease.get("IP Address") or "",
-            "mac": lease.get("Mac Address") or "",
-            "reserved": lease.get("Reserved", False),
+            "mac": mac,
+        }
+
+    def _normalize_dynamic(lease: dict) -> dict:
+        name = lease.get("Name") or ""
+        if name in ("", "No name"):
+            name = ""
+        mac = (lease.get("Mac Address") or "").lower()
+        if not name and mac:
+            name = mac_to_name.get(mac, "")
+        return {
+            "name": name,
+            "ip": lease.get("IP Address") or "",
+            "mac": mac,
             "active": lease.get("Enable", False),
         }
 
+    # Dynamic leases = all DHCP clients that do NOT have a static reservation.
+    # dhcp_leases contains all current DHCP lease holders (both reserved and dynamic);
+    # coordinator.data["devices"] is WiFi-only so we can't use it here.
+    dynamic = [
+        _normalize_dynamic(l)
+        for l in data.get("dhcp_leases", [])
+        if (l.get("Mac Address") or "").upper() not in static_macs
+    ]
+    dynamic.sort(key=lambda d: d["ip"])
+
     connection.send_result(msg["id"], {
-        "active": [_normalize_lease(l) for l in data.get("dhcp_leases", [])],
+        "dynamic": dynamic,
         "guest": [_normalize_lease(l) for l in data.get("guest_dhcp_leases", [])],
-        "static": [_normalize_with_fallback(l) for l in data.get("dhcp_static_leases", [])],
+        "static": [_normalize_static(l) for l in static_leases_raw],
     })
 
 
@@ -653,7 +684,7 @@ async def ws_dhcp_static_delete(hass, connection, msg):
     try:
         await coordinator._make_request(
             coordinator.api.dhcp.async_del_dhcp_staticlease,
-            {"MACAddress": msg["mac"]},
+            {"MACAddress": msg["mac"].upper()},
         )
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "deleted"})
@@ -843,7 +874,7 @@ async def ws_dns_set(hass, connection, msg):
         await coordinator.api.devices._auth.post(
             f"Devices.Device.{mac}", "setName", {"name": name}
         )
-        await coordinator.async_request_refresh()
+        await coordinator.async_refresh()
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "dns_set_failed", str(err))
@@ -1605,16 +1636,61 @@ async def ws_get_time(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    time_raw = await _safe_post(coordinator, "Time", "getTime")
-    ntp_raw = await _safe_post(coordinator, "Time", "getNTPServers")
-    status_raw = await _safe_post(coordinator, "Time", "getStatus")
+
+    def _st(raw):
+        """Extract payload from either 'status' or 'data' response key."""
+        if not isinstance(raw, dict):
+            return {}
+        result = raw.get("status")
+        if not isinstance(result, dict):
+            result = raw.get("data")
+        return result if isinstance(result, dict) else {}
+
+    async def _api(method_name):
+        """Safely call a coordinator.api.time method by name, return {} on any error."""
+        try:
+            fn = getattr(coordinator.api.time, method_name, None)
+            if fn is None:
+                return {}
+            result = await coordinator._make_request(fn)
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            return {}
+
+    time_raw = await _api("async_get_time")
+    status_raw = await _api("async_get_status")
+    ntp_raw = await _api("async_get_ntp")
+    tz_raw = await _api("async_get_localtime_zonename")
+
+    t = _st(time_raw)
+    s = _st(status_raw)
+    tz = _st(tz_raw)
+    ntp = _st(ntp_raw)
+
+    # Time:getNTPServers may return a list directly under "status"
+    ntp_servers_raw = ntp_raw.get("status") if isinstance(ntp_raw, dict) else None
+    if isinstance(ntp_servers_raw, list):
+        ntp_servers = [str(x) for x in ntp_servers_raw]
+    elif isinstance(ntp, dict) and ntp:
+        ntp_servers = [str(v) for v in ntp.values()]
+    else:
+        ntp_servers = []
+
+    local_time = t.get("time") or t.get("LocalTime") or t.get("localtime")
+    timezone = (
+        tz.get("name") or tz.get("LocalTimeZoneName")
+        or coordinator.data.get("nmc", {}).get("TimeZone")
+    )
+    ntp_synced = s.get("NTPSync") or s.get("NtpSync") or coordinator.data.get("ntp_synced")
+    ntp_status = s.get("Status") or s.get("status")
+
     connection.send_result(msg["id"], {
-        "local_time": time_raw.get("LocalTime") if isinstance(time_raw, dict) else None,
-        "utc_time": time_raw.get("UTCTime") if isinstance(time_raw, dict) else None,
-        "timezone": time_raw.get("LocalTimeZoneName") if isinstance(time_raw, dict) else None,
-        "ntp_servers": ntp_raw if isinstance(ntp_raw, (list, dict)) else [],
-        "ntp_status": status_raw.get("Status") if isinstance(status_raw, dict) else None,
-        "ntp_synced": status_raw.get("NTPSync") if isinstance(status_raw, dict) else None,
+        "local_time": str(local_time) if local_time is not None else None,
+        "utc_time": str(t.get("UTCTime") or t.get("utctime") or "") or None,
+        "timezone": str(timezone) if timezone is not None else None,
+        "ntp_servers": ntp_servers,
+        "ntp_status": str(ntp_status) if ntp_status is not None else None,
+        "ntp_synced": bool(ntp_synced) if ntp_synced is not None else None,
     })
 
 
@@ -2299,21 +2375,33 @@ async def ws_get_repeater_info(hass, connection, msg):
         await repeater_api.async_connect()
 
         async def _rpost(obj, fn, conf=None):
+            """POST to the repeater and return the payload dict (or None on error).
+
+            The repeater sysbus can return either:
+              {"status": {...}}          – classic format (status is the data)
+              {"status": 1, "data": {...}} – some firmware returns numeric
+                                             status + data dict separately
+            We try both keys and return whichever is a non-empty dict.
+            """
             try:
-                if conf is not None:
-                    raw = await repeater_api._auth.post(obj, fn, conf)
-                else:
-                    raw = await repeater_api._auth.post(obj, fn)
-                return raw.get("status") if isinstance(raw, dict) else raw
+                args = (conf,) if conf is not None else ()
+                raw = await repeater_api._auth.post(obj, fn, *args)
+                if not isinstance(raw, dict):
+                    return None
+                result = raw.get("status")
+                if not isinstance(result, dict):
+                    result = raw.get("data")
+                return result if isinstance(result, dict) else None
             except Exception:
                 return None
 
-        device_info = await _rpost("DeviceInfo", "get")
-        nmc_wifi = await _rpost("NMC.Wifi", "get")
-        memory_raw = await _rpost("DeviceInfo.MemoryStatus", "get")
+        # Try standard DeviceInfo:get, fall back to :getDeviceInfo (firmware diff)
+        device_info = await _rpost("DeviceInfo", "get") or await _rpost("DeviceInfo", "getDeviceInfo") or {}
+        nmc_wifi = await _rpost("NMC.Wifi", "get") or {}
+        memory_raw = await _rpost("DeviceInfo.MemoryStatus", "get") or {}
 
         # Get associated wifi stations from repeater
-        stations_raw = await _rpost("NeMo.Intf.lan", "getMIBs", {"mibs": "wlanvap"})
+        stations_raw = await _rpost("NeMo.Intf.lan", "getMIBs", {"mibs": "wlanvap"}) or {}
         stations = {}
         if isinstance(stations_raw, dict):
             wlanvap = stations_raw.get("wlanvap", {})
@@ -2321,12 +2409,12 @@ async def ws_get_repeater_info(hass, connection, msg):
                 stations = wlanvap
 
         connection.send_result(msg["id"], {
-            "device_info": device_info if isinstance(device_info, dict) else {},
-            "wifi": nmc_wifi if isinstance(nmc_wifi, dict) else {},
+            "device_info": device_info,
+            "wifi": nmc_wifi,
             "memory": {
-                "total_mb": round(memory_raw["Total"] / 1024, 0) if isinstance(memory_raw, dict) and memory_raw.get("Total") else None,
-                "free_mb": round(memory_raw["Free"] / 1024, 0) if isinstance(memory_raw, dict) and memory_raw.get("Free") else None,
-            } if memory_raw else {},
+                "total_mb": round(memory_raw["Total"] / 1024, 0) if memory_raw.get("Total") else None,
+                "free_mb": round(memory_raw["Free"] / 1024, 0) if memory_raw.get("Free") else None,
+            },
             "stations": stations,
         })
     except Exception as err:
@@ -2337,6 +2425,121 @@ async def ws_get_repeater_info(hass, connection, msg):
                 await repeater_api.async_disconnect()
             except Exception:
                 pass
+
+
+# ── Répéteur — contrôle Wifi et reboot ───────────────────────────────────────
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/repeaters/scan_ips"})
+@websocket_api.async_response
+async def ws_repeaters_scan_ips(hass, connection, msg):
+    """Auto-détecte les IPs des répéteurs depuis les baux DHCP et les enregistre."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+
+    repeaters = coordinator.data.get("topology_repeaters", {})
+    dhcp_leases = coordinator.data.get("dhcp_leases", [])
+
+    # Build MAC→IP map from DHCP leases
+    mac_to_ip: dict[str, str] = {}
+    for lease in dhcp_leases:
+        mac = (lease.get("Mac Address") or "").upper()
+        ip = lease.get("IPAddress") or ""
+        if mac and ip:
+            mac_to_ip[mac] = ip
+
+    found: list[dict] = []
+    for key in repeaters:
+        ip = mac_to_ip.get(key.upper())
+        if ip:
+            # Auto-save the IP (don't overwrite existing credentials)
+            existing = coordinator.repeater_store.get(key)
+            await coordinator.repeater_store.async_set(
+                key,
+                ip=ip,
+                username=existing.get("username") or "admin",
+                password=existing.get("password"),
+            )
+            found.append({"key": key, "ip": ip})
+
+    connection.send_result(msg["id"], {"found": found, "total": len(repeaters)})
+
+
+async def _connect_repeater(hass, coordinator, key):
+    """Crée et authentifie une session sysbus vers un répéteur.
+
+    Returns (api, None) on success or (None, error_message) on failure.
+    """
+    store_entry = coordinator.repeater_store.get(key)
+    ip = store_entry.get("ip", "")
+    username = store_entry.get("username", "")
+    password = store_entry.get("password", "")
+    if not ip or not username or not password:
+        return None, "IP et/ou identifiants manquants — configurez le répéteur dans Administration > Répéteurs."
+    try:
+        session = async_create_clientsession(hass)
+        api = AIOSysbus(username=username, password=password, session=session, host=ip, port=80, use_tls=False)
+        await api.async_connect()
+        return api, None
+    except Exception as err:
+        return None, str(err)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/repeater/wifi/set",
+    vol.Required("key"): str,
+    vol.Required("enabled"): bool,
+})
+@websocket_api.async_response
+async def ws_repeater_wifi_set(hass, connection, msg):
+    """Active ou désactive le Wifi d'un répéteur (NMC.Wifi:set)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    api, err = await _connect_repeater(hass, coordinator, msg["key"])
+    if api is None:
+        connection.send_error(msg["id"], "not_configured", err)
+        return
+    try:
+        enable = msg["enabled"]
+        await api._auth.post("NMC.Wifi", "set", {"Enable": enable, "Status": enable})
+        connection.send_result(msg["id"], {"status": "ok", "enabled": enable})
+    except Exception as err:
+        connection.send_error(msg["id"], "repeater_wifi_failed", str(err))
+    finally:
+        try:
+            await api.async_disconnect()
+        except Exception:
+            pass
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/repeater/reboot",
+    vol.Required("key"): str,
+})
+@websocket_api.async_response
+async def ws_repeater_reboot(hass, connection, msg):
+    """Redémarre un répéteur via NMC:reboot."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    api, err = await _connect_repeater(hass, coordinator, msg["key"])
+    if api is None:
+        connection.send_error(msg["id"], "not_configured", err)
+        return
+    try:
+        await api._auth.post("NMC", "reboot", None)
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "repeater_reboot_failed", str(err))
+    finally:
+        try:
+            await api.async_disconnect()
+        except Exception:
+            pass
 
 
 # ── Wifi global on/off + guest Wifi ──────────────────────────────────────────

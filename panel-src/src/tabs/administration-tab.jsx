@@ -427,9 +427,9 @@ function RoutingCard() {
         </p>
       )}
       {routes.length > 0 && (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[40vh]">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 bg-[var(--card-background-color)]">
               <tr className="border-b lb-border text-xs lb-text-muted">
                 <th className="pb-1 text-left font-medium">Nom</th>
                 <th className="pb-1 text-left font-medium">Destination</th>

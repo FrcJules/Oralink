@@ -135,8 +135,8 @@ export function PhoneTab() {
         {data && (
           callers.length === 0
             ? <p className="text-sm lb-text-muted">Aucun appel enregistré.</p>
-            : <ul className="space-y-1 text-sm">
-                {callers.slice(0, 30).map((c) => (
+            : <ul className="space-y-0 text-sm overflow-y-auto max-h-[55vh]">
+                {callers.map((c) => (
                   <li key={c.id} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
                     <span className="font-medium lb-text">{c.phone_number || "Numéro masqué"}</span>
                     <span className="text-xs lb-text-muted">
@@ -153,7 +153,7 @@ export function PhoneTab() {
         {data && (
           contacts.length === 0
             ? <p className="text-sm lb-text-muted">Aucun contact enregistré sur la Livebox.</p>
-            : <ul className="space-y-1 text-sm">
+            : <ul className="space-y-0 text-sm overflow-y-auto max-h-[45vh]">
                 {contacts.map((c) => (
                   <li key={c.id} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
                     <span>
