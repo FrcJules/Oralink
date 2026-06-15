@@ -19,16 +19,17 @@
   --lb-brand-contrast: #ffffff;
 }
 
-:host, #root {
+:host {
+  display: block;
   background: var(--primary-background-color, #f8fafc);
   color: var(--primary-text-color, #0f172a);
 }
 
 #root {
-  padding: 1.5rem;
-  max-width: 1400px;
-  margin: 0 auto;
+  background: var(--primary-background-color, #f8fafc);
+  color: var(--primary-text-color, #0f172a);
   font: 15px/1.6 var(--paper-font-body1_-_font-family, system-ui, "Segoe UI", Roboto, sans-serif);
+  /* No padding — sidebar layout handles its own spacing */
 }
 
 @layer components {
@@ -97,6 +98,17 @@
   }
   .lb-btn-outline:hover {
     background: var(--secondary-background-color, #f8fafc);
+  }
+
+  /* Sidebar active item */
+  .lb-sidebar-active {
+    background: color-mix(in srgb, var(--lb-brand) 12%, transparent);
+    color: var(--lb-brand);
+  }
+
+  /* Full-height app container — fills the HA panel area */
+  .lb-app-height {
+    min-height: 100vh;
   }
 
   /* Hide scrollbar while keeping scrollability (tab bar on mobile) */

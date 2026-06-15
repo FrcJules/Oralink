@@ -96,10 +96,10 @@ function IfaceRow({ iface }) {
   );
 }
 
-function InterfacesCard() {
+export function InterfacesCard() {
   const { data: liveIfaces, loading } = useWsData("livebox/interfaces/live", {}, 3_000);
   return (
-    <Card title="Interfaces (live)">
+    <Card title="Interfaces réseau (live)">
       {loading && !liveIfaces && <p className="text-sm lb-text-muted">Chargement…</p>}
       {liveIfaces && liveIfaces.length === 0 && (
         <p className="text-sm lb-text-muted">Aucune interface remontée.</p>
@@ -497,11 +497,7 @@ function NatSection() {
 export function ReseauTab() {
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      {/* Interfaces takes full width */}
-      <div className="md:col-span-2">
-        <InterfacesCard />
-      </div>
-      {/* DHCP sections stacked full width */}
+      {/* DHCP sections */}
       <div className="md:col-span-2 grid gap-4 md:grid-cols-2">
         <DhcpSection />
       </div>

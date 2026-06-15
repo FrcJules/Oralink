@@ -3,6 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsCommand } from "../lib/hass-context.jsx";
 import { Card, StateBox } from "../components/card.jsx";
+import { InterfacesCard } from "./reseau-tab.jsx";
 
 function timeLabel(value) {
   if (!value) return "";
@@ -155,6 +156,8 @@ export function GraphsTab() {
   const hasDeviceData = !!selectedMac && points.some((p) => (p.dev_rate_rx ?? 0) > 0 || (p.dev_rate_tx ?? 0) > 0);
 
   return (
+    <div className="space-y-4">
+    <InterfacesCard />
     <Card
       title="Graphiques de trafic — débit (Mbit/s)"
       actions={
@@ -174,7 +177,7 @@ export function GraphsTab() {
             <select
               value={selectedMac}
               onChange={(e) => handleDeviceChange(e.target.value)}
-              className="lb-input flex-1 max-w-xs"
+              className="lb-input flex-1 sm:max-w-xs"
             >
               <option value="">WAN global (agrégé)</option>
               {(deviceList ?? []).map((d) => (
@@ -198,5 +201,6 @@ export function GraphsTab() {
         L'historique par appareil n'est disponible que si l'appareil a transmis du trafic.
       </p>
     </Card>
+    </div>
   );
 }

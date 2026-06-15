@@ -1680,17 +1680,25 @@ async def ws_get_time(hass, connection, msg):
     timezone = (
         tz.get("name") or tz.get("LocalTimeZoneName")
         or coordinator.data.get("nmc", {}).get("TimeZone")
+        or coordinator.data.get("infos", {}).get("LocalTimeZoneName")
+        or t.get("timezone") or t.get("Timezone")
     )
-    ntp_synced = s.get("NTPSync") or s.get("NtpSync") or coordinator.data.get("ntp_synced")
-    ntp_status = s.get("Status") or s.get("status")
+    ntp_status_raw = s.get("Status") or s.get("status")
+    ntp_synced_raw = s.get("NTPSync") or s.get("NtpSync") or coordinator.data.get("ntp_synced")
+    # If status string says "Synchronized", treat as synced regardless of boolean flag
+    if ntp_status_raw and "ynchronized" in str(ntp_status_raw):
+        ntp_synced_raw = True
+
+    # Filter out empty NTP server entries
+    ntp_servers = [sv for sv in ntp_servers if sv and sv.strip()]
 
     connection.send_result(msg["id"], {
         "local_time": str(local_time) if local_time is not None else None,
         "utc_time": str(t.get("UTCTime") or t.get("utctime") or "") or None,
         "timezone": str(timezone) if timezone is not None else None,
         "ntp_servers": ntp_servers,
-        "ntp_status": str(ntp_status) if ntp_status is not None else None,
-        "ntp_synced": bool(ntp_synced) if ntp_synced is not None else None,
+        "ntp_status": str(ntp_status_raw) if ntp_status_raw is not None else None,
+        "ntp_synced": bool(ntp_synced_raw) if ntp_synced_raw is not None else None,
     })
 
 
