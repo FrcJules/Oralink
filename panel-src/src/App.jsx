@@ -151,7 +151,7 @@ export default function App() {
   const activeLabel = ALL_ITEMS.find((i) => i.id === activeTab)?.label ?? "Oralink";
 
   return (
-    <div className="flex lb-app-height">
+    <div className="flex flex-1 overflow-hidden">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -175,7 +175,7 @@ export default function App() {
       </div>
 
       {/* Main area */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Mobile top bar */}
         <header className="flex items-center gap-3 border-b lb-border px-4 py-3 md:hidden flex-shrink-0">
           {/* HA sidebar toggle (bubbles through Shadow DOM) */}
@@ -206,9 +206,11 @@ export default function App() {
           <span className="text-base font-semibold lb-text truncate">{activeLabel}</span>
         </header>
 
-        {/* Tab content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-          {TAB_RENDER[activeTab]?.()}
+        {/* Tab content — overflow-hidden so tabs control their own scroll */}
+        <main className="flex-1 overflow-hidden p-4 md:p-6 flex flex-col">
+          <div className="flex-1 overflow-y-auto lb-scroll">
+            {TAB_RENDER[activeTab]?.()}
+          </div>
         </main>
       </div>
     </div>

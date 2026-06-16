@@ -335,6 +335,58 @@ SENSOR_TYPES: Final[list[LiveboxSensorEntityDescription]] = [
             "repeaters": lambda x: list(x.get("topology_repeaters", {}).values()),
         },
     ),
+    LiveboxSensorEntityDescription(
+        key="wan_ip",
+        name="WAN IP Address",
+        icon="mdi:ip-network",
+        value_fn=lambda x: find_item(x, "wan_status.IPAddress"),
+        translation_key="wan_ip",
+        attrs={
+            "ipv6_address": lambda x: find_item(x, "wan_status.IPv6Address"),
+            "ipv6_prefix": lambda x: find_item(x, "wan_status.IPv6DelegatedPrefix"),
+            "gateway": lambda x: find_item(x, "wan_status.RemoteGateway"),
+        },
+    ),
+    LiveboxSensorEntityDescription(
+        key="memory_free",
+        name="Memory Free",
+        icon="mdi:memory",
+        value_fn=lambda x: x.get("memory_status", {}).get("Free"),
+        native_unit_of_measurement=UnitOfInformation.KILOBYTES,
+        suggested_unit_of_measurement=UnitOfInformation.MEGABYTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DATA_SIZE,
+        translation_key="memory_free",
+        attrs={
+            "memory_total_kb": lambda x: x.get("memory_status", {}).get("Total"),
+        },
+        entity_registry_enabled_default=True,
+    ),
+    LiveboxSensorEntityDescription(
+        key="wifi_clients_24ghz",
+        name="WiFi Clients 2.4 GHz",
+        icon="mdi:wifi",
+        value_fn=lambda x: x.get("count_devices_24ghz", 0),
+        state_class=SensorStateClass.MEASUREMENT,
+        translation_key="wifi_clients_24ghz",
+    ),
+    LiveboxSensorEntityDescription(
+        key="wifi_clients_5ghz",
+        name="WiFi Clients 5 GHz",
+        icon="mdi:wifi",
+        value_fn=lambda x: x.get("count_devices_5ghz", 0),
+        state_class=SensorStateClass.MEASUREMENT,
+        translation_key="wifi_clients_5ghz",
+    ),
+    LiveboxSensorEntityDescription(
+        key="wifi_clients_6ghz",
+        name="WiFi Clients 6 GHz",
+        icon="mdi:wifi",
+        value_fn=lambda x: x.get("count_devices_6ghz", 0),
+        state_class=SensorStateClass.MEASUREMENT,
+        translation_key="wifi_clients_6ghz",
+        entity_registry_enabled_default=False,
+    ),
 ]
 
 # Sensors only relevant for fiber (gpon/sfp) connections
@@ -448,18 +500,20 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-    # Per-device traffic rate sensors
+    # Per-device sensors — traffic rate (all devices) + signal strength (WiFi only)
     device_entities: list[SensorEntity] = []
     for mac, device in coordinator.data.get("devices", {}).items():
-        t = coordinator.data.get("device_traffic", {}).get(mac, {})
-        if t.get("rate_rx", 0) > 0 or t.get("rate_tx", 0) > 0:
-            device_key = device.get("Key") or mac
-            device_name = device.get("Name") or mac
+        device_key = device.get("Key") or mac
+        device_name = device.get("Name") or mac
+        device_entities.append(
+            LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "rx")
+        )
+        device_entities.append(
+            LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "tx")
+        )
+        if device.get("OperatingFrequencyBand"):
             device_entities.append(
-                LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "rx")
-            )
-            device_entities.append(
-                LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "tx")
+                LiveboxDeviceSignalSensor(coordinator, device_key, device_name, mac)
             )
     if device_entities:
         async_add_entities(device_entities)
@@ -534,3 +588,64 @@ class LiveboxDeviceTrafficSensor(CoordinatorEntity[LiveboxDataUpdateCoordinator]
         t = self.coordinator.data.get("device_traffic", {}).get(self._mac, {})
         val = t.get(f"rate_{self._direction}")
         return val
+
+
+class LiveboxDeviceSignalSensor(CoordinatorEntity[LiveboxDataUpdateCoordinator], SensorEntity):  # pyrefly: ignore[inconsistent-inheritance]
+    """Per-device WiFi signal strength sensor (dBm)."""
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+
+    def __init__(
+        self,
+        coordinator: LiveboxDataUpdateCoordinator,
+        device_key: str,
+        device_name: str,
+        mac: str,
+    ) -> None:
+        """Initialize the per-device signal sensor."""
+        super().__init__(coordinator)
+        self._device_key = device_key
+        self._mac = mac
+        self._attr_name = "Signal WiFi"
+        self._attr_unique_id = f"{coordinator.unique_id or DOMAIN}_device_{device_key}_signal"
+        self._attr_icon = "mdi:wifi-strength-3"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_key)},
+            name=device_name,
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return WiFi signal strength in dBm (negative integer)."""
+        device = self.coordinator.data.get("devices", {}).get(self._mac, {})
+        signal = device.get("SignalStrength")
+        return signal if signal else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return band and quality alongside signal dBm."""
+        device = self.coordinator.data.get("devices", {}).get(self._mac, {})
+        signal = device.get("SignalStrength")
+        band = device.get("OperatingFrequencyBand")
+        if signal:
+            abs_sig = signal * -1
+            if abs_sig > 90:
+                quality = "very bad"
+            elif abs_sig >= 80:
+                quality = "bad"
+            elif abs_sig >= 70:
+                quality = "very low"
+            elif abs_sig >= 67:
+                quality = "low"
+            elif abs_sig >= 60:
+                quality = "good"
+            elif abs_sig >= 50:
+                quality = "very good"
+            else:
+                quality = "excellent"
+        else:
+            quality = None
+        return {"band": band, "signal_quality": quality, "ssid": device.get("SSID")}

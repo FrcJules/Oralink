@@ -14,10 +14,12 @@ export function useWsData(type, params = {}, interval = null) {
   const [state, setState] = useState({ data: null, loading: true, error: null });
 
   const load = useCallback(() => {
-    setState((s) => ({ ...s, loading: true, error: null }));
+    // On first fetch data=null → show spinner. On auto-refresh we already
+    // have data, so keep it visible (no flicker) and just replace silently.
+    setState((s) => ({ ...s, loading: s.data === null, error: null }));
     callWs({ type, ...params })
       .then((data) => setState({ data, loading: false, error: null }))
-      .catch((error) => setState({ data: null, loading: false, error }));
+      .catch((error) => setState((s) => ({ ...s, loading: false, error })));
   }, [callWs, type, JSON.stringify(params)]);
 
   useEffect(() => {

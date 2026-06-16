@@ -17,19 +17,22 @@
 :host {
   --lb-brand: #ff7900;
   --lb-brand-contrast: #ffffff;
-}
-
-:host {
-  display: block;
+  /* Flex column so #root can fill the HA panel area with height: 100% */
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
   background: var(--primary-background-color, #f8fafc);
   color: var(--primary-text-color, #0f172a);
 }
 
 #root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--primary-background-color, #f8fafc);
   color: var(--primary-text-color, #0f172a);
   font: 15px/1.6 var(--paper-font-body1_-_font-family, system-ui, "Segoe UI", Roboto, sans-serif);
-  /* No padding — sidebar layout handles its own spacing */
 }
 
 @layer components {
@@ -106,9 +109,10 @@
     color: var(--lb-brand);
   }
 
-  /* Full-height app container — fills the HA panel area */
-  .lb-app-height {
-    min-height: 100vh;
+  /* Thin scrollbar for content areas */
+  .lb-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--divider-color, #e2e8f0) transparent;
   }
 
   /* Hide scrollbar while keeping scrollability (tab bar on mobile) */

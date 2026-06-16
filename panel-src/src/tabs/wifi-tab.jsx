@@ -65,7 +65,7 @@ function RadioRow({ radio, onSet }) {
         </span>
         <button
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1 rounded border lb-border px-2 py-0.5 text-xs hover:bg-[var(--secondary-background-color)]"
+          className="flex items-center gap-1 rounded border lb-border px-2 py-1 text-xs hover:bg-[var(--secondary-background-color)]"
         >
           <Settings className="size-3" />
           Modifier
@@ -190,7 +190,7 @@ function VapRow({ vap, onKick, onSet }) {
         <span className="w-36 text-xs lb-text-muted font-mono truncate hidden sm:block">{vap.bssid}</span>
         <button
           onClick={() => setEditOpen((v) => !v)}
-          className="flex items-center gap-1 rounded border lb-border px-1.5 py-0.5 text-xs hover:bg-[var(--secondary-background-color)] flex-shrink-0"
+          className="flex items-center gap-1 rounded border lb-border px-1.5 py-1 text-xs hover:bg-[var(--secondary-background-color)] flex-shrink-0"
         >
           <Settings className="size-3" />
           Modifier
@@ -211,7 +211,7 @@ function VapRow({ vap, onKick, onSet }) {
             <label className="flex flex-col gap-0.5 text-xs lb-text-muted">
               SSID
               <input value={ssid} onChange={(e) => setSsid(e.target.value)}
-                className="lb-input w-48" maxLength={32} />
+                className="lb-input w-full sm:w-48" maxLength={32} />
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />

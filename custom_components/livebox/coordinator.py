@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import deque
 from collections.abc import Callable
@@ -137,6 +138,12 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             fiber_stats = await self.async_get_fiber_stats()
             await self._record_traffic_history(device_traffic, wan_counters, fiber_stats)
 
+            dhcp_leases = await self.async_get_dhcp_leases()
+            memory_status, ntp_synced, cgnat_active = await asyncio.gather(
+                self.async_get_memory_status(),
+                self.async_get_ntp_synced(),
+                self.async_get_cgnat_active(),
+            )
             return {
                 "cmissed": cmissed,
                 "callers": callers,
@@ -149,6 +156,21 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "guest_wifi": await self.async_is_guest_wifi(),
                 "count_wired_devices": device_counters["wired"],
                 "count_wireless_devices": device_counters["wireless"],
+                "count_devices_24ghz": sum(
+                    1 for d in devices.values()
+                    if d.get("Active") and d.get("OperatingFrequencyBand") == "2.4GHz"
+                ),
+                "count_devices_5ghz": sum(
+                    1 for d in devices.values()
+                    if d.get("Active") and d.get("OperatingFrequencyBand") == "5GHz"
+                ),
+                "count_devices_6ghz": sum(
+                    1 for d in devices.values()
+                    if d.get("Active") and d.get("OperatingFrequencyBand") == "6GHz"
+                ),
+                "memory_status": memory_status,
+                "ntp_synced": ntp_synced,
+                "cgnat_active": cgnat_active,
                 "devices_wan_access": {
                     key: await self.async_get_device_schedule(key) for key in devices
                 },
@@ -162,7 +184,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "lan": await self.async_get_lan(devices),
                 "upnp": await self.async_get_port_forwarding(),
                 "upnp_igd": await self.async_get_upnp_igd(),
-                "dhcp_leases": await self.async_get_dhcp_leases(),
+                "dhcp_leases": dhcp_leases,
                 "guest_dhcp_leases": await self.async_get_dhcp_leases("guest"),
                 "dhcp_static_leases": await self.async_get_dhcp_static_leases(),
                 "stats": stats,
@@ -560,6 +582,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "time": now,
                 "mac": mac,
                 "name": device.get("Name", mac),
+                "ip": device.get("IPAddress", ""),
                 "event": "connected" if is_active else "disconnected",
             })
 
@@ -834,6 +857,30 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             {"conf": "IPv4", "level": level},
         )
         await self._make_request(self.api.firewall.async_commit)
+
+    async def async_get_memory_status(self) -> dict[str, Any]:
+        """Get router memory status (Total/Free in kB)."""
+        try:
+            raw = await self.api._auth.post("DeviceInfo.MemoryStatus", "get", None)
+            return (raw or {}).get("status", {}) or {}
+        except Exception as err:
+            _LOGGER.debug("Could not fetch memory status: %s", err)
+            return {}
+
+    async def async_get_ntp_synced(self) -> bool:
+        """Return True if the router NTP clock is synchronised."""
+        raw = await self._make_request(self.api.time.async_get_status)
+        status = raw.get("status") or raw.get("data") or {}
+        return bool(status.get("NTPSync", False))
+
+    async def async_get_cgnat_active(self) -> bool:
+        """Return True if CG-NAT (DS-Lite / Demand) is active on this line."""
+        try:
+            raw = await self.api._auth.post("NMC.ServiceEligibility.DSLITE", "get", None)
+            return bool((raw or {}).get("status", {}).get("Demand", False))
+        except Exception as err:
+            _LOGGER.debug("Could not fetch CG-NAT status: %s", err)
+            return False
 
     async def _make_request(
         self, func: Callable[..., Any], *args: Any

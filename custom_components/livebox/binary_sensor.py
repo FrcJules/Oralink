@@ -107,6 +107,38 @@ BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]] = (
         },
         translation_key="wan_error",
     ),
+    LiveboxBinarySensorEntityDescription(
+        key="ntp_synced",
+        name="NTP Synchronized",
+        icon="mdi:clock-check",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda x: bool(x.get("ntp_synced", False)),
+        attrs={},
+        translation_key="ntp_synced",
+    ),
+    LiveboxBinarySensorEntityDescription(
+        key="ipv6_active",
+        name="IPv6 Active",
+        icon="mdi:ip-network",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda x: bool(find_item(x, "wan_status.IPv6Address")),
+        attrs={
+            "ipv6_address": lambda x: find_item(x, "wan_status.IPv6Address"),
+            "ipv6_prefix": lambda x: find_item(x, "wan_status.IPv6DelegatedPrefix"),
+        },
+        translation_key="ipv6_active",
+    ),
+    LiveboxBinarySensorEntityDescription(
+        key="cgnat_active",
+        name="CG-NAT Active",
+        icon="mdi:shield-network",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda x: bool(x.get("cgnat_active", False)),
+        attrs={},
+        translation_key="cgnat_active",
+    ),
 )
 
 

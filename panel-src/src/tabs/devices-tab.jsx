@@ -253,7 +253,7 @@ export function DevicesTab() {
   }, [data, sort]);
 
   return (
-    <>
+    <div className="h-full flex flex-col">
       {selectedDevice && (
         <DeviceDetailDrawer
           device={selectedDevice}
@@ -261,10 +261,10 @@ export function DevicesTab() {
           onRenamed={() => setSelectedDevice(null)}
         />
       )}
-      <Card title={`Appareils${data ? ` (${data.length})` : ""}`}>
+      <Card title={`Appareils${data ? ` (${data.length})` : ""}`} fill>
         <StateBox loading={loading} error={error} />
         {sorted && (
-          <div className="overflow-x-auto overflow-y-auto max-h-[65vh]">
+          <div className="flex-1 overflow-x-auto overflow-y-auto lb-scroll">
             <table className="w-full text-left text-sm">
               <thead className="sticky top-0 text-xs uppercase lb-text-muted bg-[var(--card-background-color)]">
                 <tr>
@@ -310,6 +310,6 @@ export function DevicesTab() {
           </div>
         )}
       </Card>
-    </>
+    </div>
   );
 }

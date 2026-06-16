@@ -107,6 +107,11 @@ class LiveboxDeviceScannerEntity(  # pyrefly: ignore[inconsistent-inheritance]
         traffic = self.coordinator.data.get("device_traffic", {}).get(
             self._device_key, {}
         )
+        # Check if this device has a static DHCP reservation
+        static_macs = {
+            (l.get("Mac Address") or "").lower()
+            for l in self.coordinator.data.get("dhcp_static_leases", [])
+        }
         attrs = {
             "interface_name": self._device.get("InterfaceName"),
             "type": self._device.get("DeviceType"),
@@ -117,6 +122,9 @@ class LiveboxDeviceScannerEntity(  # pyrefly: ignore[inconsistent-inheritance]
             "last_changed": self._device.get("LastChanged"),
             "rate_rx_mbps": traffic.get("rate_rx"),
             "rate_tx_mbps": traffic.get("rate_tx"),
+            "ssid": self._device.get("SSID"),
+            "active": self._device.get("Active", False),
+            "static_ip": (self._device_key or "").lower() in static_macs,
         }
 
         if self._device.get("InterfaceName") in [

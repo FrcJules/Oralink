@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { RefreshCw } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -89,8 +88,12 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
     }
   };
 
-  // Auto-fetch on mount
-  useEffect(() => { interrogate(); }, [repeaterKey]);
+  // Auto-fetch on mount + periodic refresh every 2 min
+  useEffect(() => {
+    interrogate();
+    const timer = setInterval(interrogate, 120_000);
+    return () => clearInterval(timer);
+  }, [repeaterKey]);
 
   const toggleWifi = async (enable) => {
     setTogglingWifi(true);
@@ -127,11 +130,7 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
     <div className="mt-4 border-t lb-border pt-4">
       {/* Actions */}
       <div className="mb-3 flex flex-wrap gap-2">
-        <button onClick={interrogate} disabled={loading}
-          className="flex items-center gap-1.5 rounded border lb-border px-3 py-1.5 text-xs hover:bg-[var(--secondary-background-color)] disabled:opacity-40">
-          <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
-          {loading ? "Actualisation…" : "Actualiser"}
-        </button>
+        {loading && <p className="self-center text-xs lb-text-muted">Actualisation…</p>}
         {info && (
           <>
             <button onClick={() => toggleWifi(!wifiEnabled)} disabled={togglingWifi}
@@ -242,7 +241,7 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
 // ── Main tab ───────────────────────────────────────────────────────────────────
 
 export function RepeatersTab() {
-  const { data, loading, error, refresh } = useWsData("livebox/repeaters");
+  const { data, loading, error, refresh } = useWsData("livebox/repeaters", {}, 30_000);
   const runAction = useWsAction();
   const hasAutoScanned = useRef(false);
 
@@ -258,18 +257,7 @@ export function RepeatersTab() {
   }, [data]);
 
   return (
-    <Card
-      title="Répéteurs Wifi"
-      actions={
-        <button
-          onClick={() => { hasAutoScanned.current = false; refresh(); }}
-          className="flex items-center gap-1.5 rounded border lb-border px-2.5 py-1 text-xs hover:bg-[var(--secondary-background-color)]"
-        >
-          <RefreshCw className="size-3" />
-          Actualiser
-        </button>
-      }
-    >
+    <Card title="Répéteurs Wifi">
       <StateBox loading={loading} error={error} />
 
       {data && data.length === 0 && (

@@ -107,37 +107,39 @@ export function NatTab() {
           {data.length === 0 ? (
             <p className="text-sm lb-text-muted">Aucune règle NAT configurée.</p>
           ) : (
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase lb-text-muted">
-                <tr>
-                  <th className="py-1.5 pr-3">Nom</th>
-                  <th className="py-1.5 pr-3">IP destination</th>
-                  <th className="py-1.5 pr-3">Port externe</th>
-                  <th className="py-1.5 pr-3">Port interne</th>
-                  <th className="py-1.5 pr-3">Protocole</th>
-                  <th className="py-1.5" />
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((rule) => (
-                  <tr key={rule.id} className="border-t lb-border">
-                    <td className="py-1.5 pr-3 font-medium">{rule.name ?? rule.id ?? "—"}</td>
-                    <td className="py-1.5 pr-3 lb-text-muted">{rule.destination_ip || "—"}</td>
-                    <td className="py-1.5 pr-3 lb-text-muted">{rule.external_port || "—"}</td>
-                    <td className="py-1.5 pr-3 lb-text-muted">{rule.internal_port || "—"}</td>
-                    <td className="py-1.5 pr-3 lb-text-muted">{rule.protocol || "—"}</td>
-                    <td className="py-1.5 text-right">
-                      <button
-                        onClick={() => handleDelete(rule.id, rule.name)}
-                        className="rounded-md border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
-                      >
-                        Supprimer
-                      </button>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs uppercase lb-text-muted">
+                  <tr>
+                    <th className="py-1.5 pr-3">Nom</th>
+                    <th className="py-1.5 pr-3">IP destination</th>
+                    <th className="py-1.5 pr-3">Port externe</th>
+                    <th className="py-1.5 pr-3">Port interne</th>
+                    <th className="py-1.5 pr-3">Protocole</th>
+                    <th className="py-1.5" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.map((rule) => (
+                    <tr key={rule.id} className="border-t lb-border">
+                      <td className="py-1.5 pr-3 font-medium">{rule.name ?? rule.id ?? "—"}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.destination_ip || "—"}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.external_port || "—"}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.internal_port || "—"}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.protocol || "—"}</td>
+                      <td className="py-1.5 text-right">
+                        <button
+                          onClick={() => handleDelete(rule.id, rule.name)}
+                          className="rounded-md border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                        >
+                          Supprimer
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

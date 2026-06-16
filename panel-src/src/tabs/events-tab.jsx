@@ -28,15 +28,15 @@ export function EventsTab() {
   const hasMore = visible.length < filtered.length;
 
   return (
-    <Card title="Journal d'événements">
-      <p className="mb-3 text-xs lb-text-muted">
+    <Card title="Journal d'événements" fill>
+      <p className="mb-3 flex-shrink-0 text-xs lb-text-muted">
         Connexions et déconnexions détectées entre deux rafraîchissements (~1 min).
         Pour des notifications en temps réel, créez une automatisation HA sur les
         capteurs de présence des appareils suivis.
       </p>
 
       {/* Filters */}
-      <div className="mb-3 flex flex-wrap gap-2">
+      <div className="mb-3 flex-shrink-0 flex flex-wrap gap-2">
         <input
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
@@ -75,9 +75,8 @@ export function EventsTab() {
         <p className="text-sm lb-text-muted">Aucun événement{search || filter !== "all" ? " correspondant" : " détecté pour le moment"}.</p>
       )}
 
-      {/* Scrollable list with fixed max height */}
       {visible.length > 0 && (
-        <div className="overflow-y-auto overflow-x-auto max-h-[60vh] rounded border lb-border">
+        <div className="flex-1 overflow-y-auto overflow-x-auto lb-scroll rounded border lb-border">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-[var(--card-background-color)] z-10 text-xs uppercase lb-text-muted">
               <tr>

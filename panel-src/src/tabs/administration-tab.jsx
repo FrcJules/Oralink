@@ -6,7 +6,7 @@
  *   • Répéteurs (paramètres de connexion + infos détaillées)
  */
 import { useState } from "react";
-import { Clock, HardDrive, Zap, Shield, RefreshCw, Router, Radio } from "lucide-react";
+import { Clock, HardDrive, Zap, Shield, RefreshCw, Router } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -26,7 +26,6 @@ const SECTIONS = [
   { id: "system", label: "Système" },
   { id: "advanced", label: "Avancé" },
   { id: "diagnostics", label: "Diagnostics" },
-  { id: "repeaters", label: "Répéteurs" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -629,150 +628,6 @@ function DiagnosticsSection() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RÉPÉTEURS
-// ─────────────────────────────────────────────────────────────────────────────
-
-function RepeaterForm({ repeater, onSaved }) {
-  const runAction = useWsAction();
-  const [ip, setIp] = useState(repeater.ip);
-  const [username, setUsername] = useState(repeater.username);
-  const [password, setPassword] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await runAction(
-        { type: "livebox/repeaters/set", key: repeater.key, ip, username, ...(password ? { password } : {}) },
-        { success: `Paramètres de « ${repeater.name} » enregistrés.` },
-      );
-      setPassword("");
-      onSaved();
-    } catch (err) { setError(err); } finally { setSaving(false); }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="grid gap-2 sm:grid-cols-4 sm:items-end">
-      <label className="flex flex-col gap-1 text-xs lb-text-muted">
-        Adresse IP
-        <input value={ip} onChange={(e) => setIp(e.target.value)} placeholder="192.168.1.x" className="lb-input" />
-      </label>
-      <label className="flex flex-col gap-1 text-xs lb-text-muted">
-        Identifiant
-        <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="admin" className="lb-input" />
-      </label>
-      <label className="flex flex-col gap-1 text-xs lb-text-muted">
-        Mot de passe
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-          placeholder={repeater.has_password ? "••••••••" : ""} className="lb-input" />
-      </label>
-      <button type="submit" disabled={saving} className="lb-btn-primary">
-        {saving ? "Enregistrement…" : "Enregistrer"}
-      </button>
-      {error && <p className="text-xs text-red-600 sm:col-span-4">Erreur : {String(error.message ?? error)}</p>}
-    </form>
-  );
-}
-
-function RepeaterInfoPanel({ repeaterKey }) {
-  const runAction = useWsAction();
-  const [info, setInfo] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const fetchInfo = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await runAction(
-        { type: "livebox/repeater/info", key: repeaterKey },
-        { error: "Impossible de joindre le répéteur." }
-      );
-      setInfo(result ?? null);
-    } catch (err) {
-      setError(String(err?.message ?? err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const di = info?.device_info ?? {};
-  const wifi = info?.wifi ?? {};
-  const mem = info?.memory ?? {};
-
-  return (
-    <div className="mt-3">
-      <button onClick={fetchInfo} disabled={loading}
-        className="rounded-md border lb-border px-3 py-1 text-xs hover:bg-[var(--secondary-background-color)] disabled:opacity-50">
-        <span className="flex items-center gap-1.5"><Radio className="size-3" />
-          {loading ? "Connexion…" : "Interroger le répéteur"}
-        </span>
-      </button>
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-      {info && (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {Object.keys(di).length > 0 && (
-            <div className="rounded-lg border lb-border p-2">
-              <p className="mb-1 text-xs font-semibold uppercase lb-text-muted">Informations appareil</p>
-              {di.Manufacturer && <Row label="Fabricant" value={di.Manufacturer} />}
-              {di.ProductClass && <Row label="Modèle" value={di.ProductClass} />}
-              {di.SoftwareVersion && <Row label="Firmware" value={di.SoftwareVersion} />}
-              {di.SerialNumber && <Row label="N° série" value={di.SerialNumber} />}
-              {di.BaseMAC && <Row label="MAC" value={di.BaseMAC} />}
-              {di.UpTime != null && <Row label="Uptime" value={`${Math.round(di.UpTime / 3600)} h`} />}
-            </div>
-          )}
-          {(wifi.Enable != null || wifi.Status != null || mem.total_mb) && (
-            <div className="rounded-lg border lb-border p-2">
-              <p className="mb-1 text-xs font-semibold uppercase lb-text-muted">Wifi & Mémoire</p>
-              {wifi.Enable != null && <Row label="Wifi activé" value={wifi.Enable ? "Oui" : "Non"} />}
-              {wifi.Status != null && <Row label="Statut Wifi" value={wifi.Status ? "Actif" : "Inactif"} />}
-              {mem.total_mb != null && <Row label="RAM totale" value={`${mem.total_mb} Mo`} />}
-              {mem.free_mb != null && <Row label="RAM libre" value={`${mem.free_mb} Mo`} />}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RepeatersSection() {
-  const { data, loading, error, refresh } = useWsData("livebox/repeaters");
-
-  return (
-    <Card title="Répéteurs Wifi — paramètres de connexion">
-      <StateBox loading={loading} error={error} />
-      <p className="mb-3 text-xs lb-text-muted">
-        Adresse IP et identifiants utilisés pour se connecter directement à chaque répéteur.
-        Enregistrés en local dans le stockage de Home Assistant.
-      </p>
-      {data && (
-        data.length === 0
-          ? <p className="text-sm lb-text-muted">Aucun répéteur détecté dans la topologie.</p>
-          : <div className="space-y-4">
-              {data.map((repeater) => (
-                <div key={repeater.key} className="rounded-lg border lb-border p-3">
-                  <p className="mb-2 text-sm font-medium lb-text">📡 {repeater.name}</p>
-                  <RepeaterForm repeater={repeater} onSaved={refresh} />
-                  {repeater.ip && repeater.has_password && (
-                    <RepeaterInfoPanel repeaterKey={repeater.key} />
-                  )}
-                  {repeater.ip && !repeater.has_password && (
-                    <p className="mt-2 text-xs lb-text-muted">Entrez le mot de passe pour interroger le répéteur.</p>
-                  )}
-                </div>
-              ))}
-            </div>
-      )}
-    </Card>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Main export
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -801,7 +656,6 @@ export function AdministrationTab() {
       {section === "system" && <SystemSection />}
       {section === "advanced" && <AdvancedSection />}
       {section === "diagnostics" && <DiagnosticsSection />}
-      {section === "repeaters" && <RepeatersSection />}
     </div>
   );
 }
