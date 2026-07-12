@@ -114,6 +114,44 @@ function AddContactForm({ onSaved }) {
 
 const STATUS_LABEL = { missed: "Manqué", incoming: "Entrant", outgoing: "Sortant", accepted: "Reçu" };
 
+function DectCard() {
+  const { data, loading, error } = useWsData("livebox/phone/dect", {}, 300_000);
+  const runAction = useWsAction();
+  const [ringing, setRinging] = useState(false);
+
+  const handleRing = async () => {
+    setRinging(true);
+    try {
+      await runAction({ type: "livebox/phone/ring" }, { success: "Le combiné devrait sonner." });
+    } finally {
+      setRinging(false);
+    }
+  };
+
+  const hasDect = data && (data.name || data.pin || data.rfpi || data.software_version);
+
+  return (
+    <Card title="DECT">
+      <StateBox loading={loading} error={error} />
+      {data && !hasDect && (
+        <p className="text-sm lb-text-muted">Pas de combiné DECT sur ce modèle de Livebox.</p>
+      )}
+      {hasDect && (
+        <>
+          <Row label="Nom" value={data.name} />
+          <Row label="PIN" value={data.pin} />
+          <Row label="RFPI" value={data.rfpi} />
+          <Row label="Version logicielle" value={data.software_version} />
+          <button onClick={handleRing} disabled={ringing}
+            className="mt-3 rounded border lb-border px-3 py-1.5 text-xs hover:bg-[var(--secondary-background-color)] disabled:opacity-40">
+            {ringing ? "…" : "🔔 Sonner le combiné"}
+          </button>
+        </>
+      )}
+    </Card>
+  );
+}
+
 export function PhoneTab() {
   const { data, loading, error, refresh } = useWsData("livebox/phone", {}, 60_000);
   const runAction = useWsAction();
@@ -128,9 +166,29 @@ export function PhoneTab() {
     refresh();
   };
 
+  const handleDeleteCall = async (id) => {
+    await runAction({ type: "livebox/phone/calls/delete", call_id: id }, { success: "Appel supprimé." });
+    refresh();
+  };
+
+  const handleDeleteAllCalls = async () => {
+    if (!window.confirm("Vider tout l'historique d'appels ?")) return;
+    await runAction({ type: "livebox/phone/calls/delete_all" }, { success: "Historique d'appels vidé." });
+    refresh();
+  };
+
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      <Card title="Historique d'appels">
+      <Card title={
+        <div className="flex items-center justify-between">
+          <span>Historique d'appels</span>
+          {callers.length > 0 && (
+            <button onClick={handleDeleteAllCalls} className="text-xs text-red-600 hover:underline">
+              Vider l'historique
+            </button>
+          )}
+        </div>
+      }>
         <StateBox loading={loading} error={error} />
         {data && (
           callers.length === 0
@@ -139,8 +197,11 @@ export function PhoneTab() {
                 {callers.map((c) => (
                   <li key={c.id} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
                     <span className="font-medium lb-text">{c.phone_number || "Numéro masqué"}</span>
-                    <span className="text-xs lb-text-muted">
+                    <span className="flex items-center gap-2 text-xs lb-text-muted">
                       {STATUS_LABEL[c.status] ?? c.status} · {c.date} {c.duration ? `· ${c.duration}s` : ""}
+                      <button onClick={() => handleDeleteCall(c.id)} className="text-red-600 hover:underline">
+                        Supprimer
+                      </button>
                     </span>
                   </li>
                 ))}
@@ -170,6 +231,7 @@ export function PhoneTab() {
       </Card>
 
       <VoipTrunksCard />
+      <DectCard />
     </div>
   );
 }

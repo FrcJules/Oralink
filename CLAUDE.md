@@ -111,10 +111,16 @@ manquantes côté panel Oralink, par ordre de priorité suggéré :
    implémentée, à valider avant d'investir dessus.
 6. ✅ **Téléphone** (`LmPhoneTab`) — onglet **"Téléphone"** : historique
    d'appels (réutilise `coordinator.data["callers"]`, déjà peuplé par
-   `async_get_callers`) et carnet de contacts de la Livebox
+   `async_get_callers`, suppression individuelle/globale via
+   `livebox/phone/calls/delete[_all]` → `VoiceService.VoiceApplication:
+   clearCallList`) et carnet de contacts de la Livebox
    (`coordinator.api.phonebook.*` — lecture via `coordinator.async_get_contacts`
    exposée dans `coordinator.data["contacts"]`, ajout/suppression via les
-   commandes WS `livebox/phone/contacts/add|delete`).
+   commandes WS `livebox/phone/contacts/add|delete`). Trunks VoIP
+   (`livebox/voip/trunks`) et infos DECT — nom, PIN, RFPI, version logicielle,
+   absent sur Livebox 6+ — (`livebox/phone/dect`, appels sysbus directs
+   `DECT:get*`) affichés en cartes dédiées ; bouton "Sonner le combiné"
+   (`livebox/phone/ring` → `VoiceService.VoiceApplication:ring`).
 7. ✅ **Décodeurs TV Orange** (`LmTvDecoderTab`) — onglet **"Décodeurs TV"** :
    le décodeur ne passe pas par l'API sysbus, il faut lui parler en HTTP
    direct sur son IP locale (`tv_decoder_api.py`, port 8080,
@@ -123,6 +129,26 @@ manquantes côté panel Oralink, par ordre de priorité suggéré :
    concurrent), persistée par `tv_decoder_store.py` ; statut en direct et
    télécommande virtuelle (touches mappées sur les codes du décodeur), via
    les commandes WS `livebox/tvdecoders*`.
+
+**Réinitialisation usine** — Livebox (`livebox/system/factory_reset`, zone
+dangereuse de l'onglet "Administration") et répéteurs
+(`livebox/repeater/factory_reset`, à côté du bouton "Redémarrer" de l'onglet
+"Répéteurs") — `NMC:reset`, action irréversible, double confirmation côté
+panel.
+
+**Redirection de protocole / Port Triggering (PTF)** — section dédiée dans
+l'onglet "Réseau" sous le NAT existant, `Firewall:getProtocolForwarding` /
+`setProtocolForwarding` / `deleteProtocolForwarding` (pas wrappé par
+`aiosysbus`, appels `_auth.post` directs comme pour les LEDs), commandes WS
+`livebox/ptf[/add|/delete]`, données rafraîchies à chaque cycle du
+coordinator dans `coordinator.data["ptf"]`.
+
+**Nettoyage panel-src (2026-07-12)** : 6 fichiers d'onglets
+(`dhcp-tab.jsx`, `nat-tab.jsx`, `network-tab.jsx`, `system-tab.jsx`,
+`diagnostics-tab.jsx`, `advanced-tab.jsx`) n'étaient plus importés dans
+`App.jsx` et dupliquaient intégralement des sections déjà présentes dans
+`reseau-tab.jsx`/`overview-tab.jsx`/`administration-tab.jsx` — supprimés
+(code mort, aucune perte fonctionnelle).
 
 La **topologie réseau** (onglet "Topologie") a été reconstruite pour
 retrouver le rendu et les fonctionnalités de l'ancien panel React

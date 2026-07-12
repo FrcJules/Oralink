@@ -186,6 +186,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "topology_repeaters": topology_repeaters,
                 "lan": await self.async_get_lan(devices),
                 "upnp": await self.async_get_port_forwarding(),
+                "ptf": await self.async_get_protocol_forwarding(),
                 "upnp_igd": await self.async_get_upnp_igd(),
                 "dhcp_leases": dhcp_leases,
                 "guest_dhcp_leases": await self.async_get_dhcp_leases("guest"),
@@ -697,6 +698,32 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             )
 
         return ports
+
+    async def async_get_protocol_forwarding(self) -> list[dict[str, Any]]:
+        """Get protocol/port-triggering (PTF) rules — not wrapped by aiosysbus, direct call."""
+        try:
+            raw = await self.api.firewall._auth.post("Firewall", "getProtocolForwarding")
+        except AiosysbusException:
+            return []
+        forwarding = raw.get("status", {}) if isinstance(raw, dict) else {}
+        if not isinstance(forwarding, dict):
+            return []
+        rules = []
+        for rule in forwarding.values():
+            rules.append(
+                {
+                    "id": rule.get("Id"),
+                    "name": rule.get("Description") or rule.get("Id", ""),
+                    "enable": rule.get("Status", "Disabled") == "Enabled",
+                    "protocol": rule.get("Protocol", ""),
+                    "external_port_start": rule.get("ExternalPortStart", ""),
+                    "external_port_end": rule.get("ExternalPortEnd", ""),
+                    "internal_port_start": rule.get("InternalPortStart", ""),
+                    "internal_port_end": rule.get("InternalPortEnd", ""),
+                    "destination_ip": rule.get("DestinationIPAddress", ""),
+                }
+            )
+        return rules
 
     async def async_get_dhcp_leases(
         self, domain: str = "default"

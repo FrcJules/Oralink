@@ -74,6 +74,7 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
   const [error, setError] = useState(null);
   const [togglingWifi, setTogglingWifi] = useState(false);
   const [rebooting, setRebooting] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const interrogate = async () => {
     setLoading(true);
@@ -117,6 +118,21 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
     } catch { /* toast */ } finally { setRebooting(false); }
   };
 
+  const resetRepeater = async () => {
+    if (!confirm(
+      `⚠️ Réinitialiser le répéteur « ${repeaterName} » aux paramètres d'usine ?\n\n` +
+      "Toute sa configuration sera effacée. Cette action est IRRÉVERSIBLE."
+    )) return;
+    if (!confirm("Dernière confirmation : continuer la réinitialisation ?")) return;
+    setResetting(true);
+    try {
+      await runAction(
+        { type: "livebox/repeater/factory_reset", key: repeaterKey },
+        { success: "Réinitialisation usine lancée." },
+      );
+    } catch { /* toast */ } finally { setResetting(false); }
+  };
+
   const di = info?.device_info ?? {};
   const wifi = info?.wifi ?? {};
   const mem = info?.memory ?? {};
@@ -144,6 +160,10 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
             <button onClick={rebootRepeater} disabled={rebooting}
               className="rounded border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40">
               {rebooting ? "…" : "Redémarrer"}
+            </button>
+            <button onClick={resetRepeater} disabled={resetting}
+              className="rounded border border-red-400 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-40">
+              {resetting ? "…" : "🗑️ Réinitialisation usine"}
             </button>
           </>
         )}

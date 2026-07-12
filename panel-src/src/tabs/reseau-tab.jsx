@@ -492,6 +492,138 @@ function NatSection() {
   );
 }
 
+function AddPtfRuleForm({ onSaved }) {
+  const runAction = useWsAction();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    name: "", protocol: "TCP",
+    external_port_start: "", external_port_end: "",
+    internal_port_start: "", internal_port_end: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState(null);
+
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setFormError(null);
+    try {
+      await runAction({ type: "livebox/ptf/add", ...form }, { success: `Règle « ${form.name} » ajoutée.` });
+      setForm({ name: "", protocol: "TCP", external_port_start: "", external_port_end: "", internal_port_start: "", internal_port_end: "" });
+      setOpen(false);
+      onSaved();
+    } catch (err) { setFormError(err); } finally { setSaving(false); }
+  };
+
+  if (!open) return <button onClick={() => setOpen(true)} className="lb-btn-primary mb-3">+ Ajouter une règle PTF</button>;
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-4 grid gap-2 rounded-lg border lb-border p-3 sm:grid-cols-3">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Nom de la règle
+        <input value={form.name} onChange={set("name")} required className="lb-input" />
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Protocole
+        <select value={form.protocol} onChange={set("protocol")} className="lb-input">
+          {PROTOCOLS.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </label>
+      <span />
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Port externe début
+        <input value={form.external_port_start} onChange={set("external_port_start")} required placeholder="6000" className="lb-input" />
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Port externe fin
+        <input value={form.external_port_end} onChange={set("external_port_end")} required placeholder="6010" className="lb-input" />
+      </label>
+      <span />
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Port interne début
+        <input value={form.internal_port_start} onChange={set("internal_port_start")} required placeholder="6000" className="lb-input" />
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Port interne fin
+        <input value={form.internal_port_end} onChange={set("internal_port_end")} required placeholder="6010" className="lb-input" />
+      </label>
+      <span />
+      <div className="flex gap-2 sm:col-span-3">
+        <button type="submit" disabled={saving} className="lb-btn-primary">{saving ? "Enregistrement…" : "Enregistrer"}</button>
+        <button type="button" onClick={() => setOpen(false)} className="lb-btn-outline">Annuler</button>
+      </div>
+      {formError && <p className="text-xs text-red-600 sm:col-span-3">Erreur : {String(formError.message ?? formError)}</p>}
+    </form>
+  );
+}
+
+function PtfSection() {
+  const { data, loading, error, refresh } = useWsData("livebox/ptf", {}, 60_000);
+  const runAction = useWsAction();
+  const [deleteError, setDeleteError] = useState(null);
+
+  const handleDelete = async (ruleId, ruleName) => {
+    setDeleteError(null);
+    try {
+      await runAction({ type: "livebox/ptf/delete", rule_id: ruleId }, { success: `Règle « ${ruleName ?? ruleId} » supprimée.` });
+      refresh();
+    } catch (err) { setDeleteError(err); }
+  };
+
+  return (
+    <Card title="Redirection de protocole (Port Triggering)">
+      <p className="mb-3 text-xs lb-text-muted">
+        Contrairement au NAT, la redirection s'active automatiquement quand une machine du réseau
+        émet du trafic sortant sur le port déclencheur — pas besoin d'IP de destination fixe.
+      </p>
+      <StateBox loading={loading} error={error} />
+      {data && (
+        <>
+          <AddPtfRuleForm onSaved={refresh} />
+          {deleteError && <p className="mb-2 text-xs text-red-600">Erreur : {String(deleteError.message ?? deleteError)}</p>}
+          {data.length === 0 ? (
+            <p className="text-sm lb-text-muted">Aucune règle PTF configurée.</p>
+          ) : (
+            <div className="overflow-x-auto overflow-y-auto max-h-[50vh]">
+              <table className="w-full text-left text-sm">
+                <thead className="sticky top-0 text-xs uppercase lb-text-muted bg-[var(--card-background-color)]">
+                  <tr>
+                    <th className="py-1.5 pr-3">Nom</th>
+                    <th className="py-1.5 pr-3">Ports ext.</th>
+                    <th className="py-1.5 pr-3">Ports int.</th>
+                    <th className="py-1.5 pr-3">Protocole</th>
+                    <th className="py-1.5" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.map((rule) => (
+                    <tr key={rule.id} className="border-t lb-border">
+                      <td className="py-1.5 pr-3 font-medium">{rule.name ?? rule.id ?? "—"}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.external_port_start}–{rule.external_port_end}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.internal_port_start}–{rule.internal_port_end}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.protocol || "—"}</td>
+                      <td className="py-1.5 text-right">
+                        <button
+                          onClick={() => handleDelete(rule.id, rule.name)}
+                          className="rounded-md border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                        >
+                          Supprimer
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function ReseauTab() {
@@ -504,6 +636,10 @@ export function ReseauTab() {
       {/* NAT full width */}
       <div className="md:col-span-2">
         <NatSection />
+      </div>
+      {/* PTF full width */}
+      <div className="md:col-span-2">
+        <PtfSection />
       </div>
     </div>
   );

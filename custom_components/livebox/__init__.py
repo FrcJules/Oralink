@@ -27,7 +27,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 _LOGGER = logging.getLogger(__name__)
 
 
-_PANEL_BUILD = "b67"  # bump whenever the JS bundle changes
+_PANEL_BUILD = "b68"  # bump whenever the JS bundle changes
 
 
 def _panel_module_url() -> str:

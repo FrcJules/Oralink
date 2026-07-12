@@ -266,7 +266,40 @@ function SystemSection() {
       <TimeCard />
       <UsbCard />
       <PowerCard />
+      <DangerZoneCard />
     </div>
+  );
+}
+
+function DangerZoneCard() {
+  const runAction = useWsAction();
+  const [resetting, setResetting] = useState(false);
+
+  const handleFactoryReset = async () => {
+    if (!window.confirm(
+      "⚠️ Réinitialiser la Livebox aux paramètres d'usine ?\n\n" +
+      "Toute la configuration (Wifi, contacts, redirections de port, etc.) sera effacée. " +
+      "Cette action est IRRÉVERSIBLE. Continuer ?"
+    )) return;
+    if (!window.confirm("Dernière confirmation : la Livebox va se réinitialiser et redémarrer. Confirmer ?")) return;
+    setResetting(true);
+    try {
+      await runAction({ type: "livebox/system/factory_reset" }, { success: "Réinitialisation usine lancée." });
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  return (
+    <Card title={<span className="flex items-center gap-2 text-red-600"><Shield className="size-4" /> Zone dangereuse</span>}>
+      <p className="mb-3 text-sm lb-text-muted">
+        Réinitialise la Livebox à sa configuration d'usine. Toute la configuration actuelle sera perdue.
+      </p>
+      <button onClick={handleFactoryReset} disabled={resetting}
+        className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700 hover:bg-red-100 disabled:opacity-40">
+        {resetting ? "Réinitialisation…" : "🗑️ Réinitialiser aux paramètres d'usine"}
+      </button>
+    </Card>
   );
 }
 

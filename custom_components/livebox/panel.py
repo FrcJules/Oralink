@@ -22,6 +22,9 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_devices)
     websocket_api.async_register_command(hass, ws_get_dhcp)
     websocket_api.async_register_command(hass, ws_get_nat)
+    websocket_api.async_register_command(hass, ws_get_ptf)
+    websocket_api.async_register_command(hass, ws_ptf_add)
+    websocket_api.async_register_command(hass, ws_ptf_delete)
     websocket_api.async_register_command(hass, ws_get_network)
     websocket_api.async_register_command(hass, ws_get_topology)
     websocket_api.async_register_command(hass, ws_get_topology_positions)
@@ -59,6 +62,7 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_ping_response)
     # Reboot
     websocket_api.async_register_command(hass, ws_reboot)
+    websocket_api.async_register_command(hass, ws_factory_reset)
     # Device type
     websocket_api.async_register_command(hass, ws_set_device_type)
     # Repeaters (settings: IP + identifiants)
@@ -75,6 +79,10 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_phone)
     websocket_api.async_register_command(hass, ws_add_contact)
     websocket_api.async_register_command(hass, ws_delete_contact)
+    websocket_api.async_register_command(hass, ws_get_phone_dect)
+    websocket_api.async_register_command(hass, ws_phone_call_delete)
+    websocket_api.async_register_command(hass, ws_phone_calls_delete_all)
+    websocket_api.async_register_command(hass, ws_phone_ring)
     # Graphiques de trafic (historique en mémoire)
     websocket_api.async_register_command(hass, ws_get_graphs)
     websocket_api.async_register_command(hass, ws_get_graphs_device)
@@ -135,6 +143,7 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_repeater_info)
     websocket_api.async_register_command(hass, ws_repeater_wifi_set)
     websocket_api.async_register_command(hass, ws_repeater_reboot)
+    websocket_api.async_register_command(hass, ws_repeater_factory_reset)
     websocket_api.async_register_command(hass, ws_repeaters_scan_ips)
     # Wifi global on/off + guest Wifi
     websocket_api.async_register_command(hass, ws_wifi_global_toggle)
@@ -277,6 +286,73 @@ def ws_get_nat(hass, connection, msg):
     # Only manual (webui-created) rules for the NAT tab
     webui = [r for r in all_rules if str(r.get("id", "")).startswith("webui_")]
     connection.send_result(msg["id"], webui if webui else all_rules)
+
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/ptf"})
+def ws_get_ptf(hass, connection, msg):
+    """Règles de redirection de protocole (Port Triggering)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], coordinator.data.get("ptf", []))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/ptf/add",
+    vol.Required("name"): str,
+    vol.Required("protocol"): str,
+    vol.Required("external_port_start"): str,
+    vol.Required("external_port_end"): str,
+    vol.Required("internal_port_start"): str,
+    vol.Required("internal_port_end"): str,
+})
+@websocket_api.async_response
+async def ws_ptf_add(hass, connection, msg):
+    """Ajoute une règle de redirection de protocole (Firewall:setProtocolForwarding)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.firewall._auth.post("Firewall", "setProtocolForwarding", {
+            "id": f"webui_{msg['name']}",
+            "description": msg["name"],
+            "protocol": msg["protocol"],
+            "sourceInterface": "data",
+            "externalPortStart": msg["external_port_start"],
+            "externalPortEnd": msg["external_port_end"],
+            "internalPortStart": msg["internal_port_start"],
+            "internalPortEnd": msg["internal_port_end"],
+            "enable": True,
+            "persistent": True,
+        })
+        await coordinator.api.firewall.async_commit()
+        await coordinator.async_request_refresh()
+        connection.send_result(msg["id"], {"status": "added"})
+    except Exception as err:
+        connection.send_error(msg["id"], "ptf_add_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/ptf/delete",
+    vol.Required("rule_id"): str,
+})
+@websocket_api.async_response
+async def ws_ptf_delete(hass, connection, msg):
+    """Supprime une règle de redirection de protocole (Firewall:deleteProtocolForwarding)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.firewall._auth.post("Firewall", "deleteProtocolForwarding", {"id": msg["rule_id"]})
+        await coordinator.api.firewall.async_commit()
+        await coordinator.async_request_refresh()
+        connection.send_result(msg["id"], {"status": "deleted"})
+    except Exception as err:
+        connection.send_error(msg["id"], "ptf_delete_failed", str(err))
 
 
 @callback
@@ -1089,6 +1165,21 @@ async def ws_reboot(hass, connection, msg):
         connection.send_error(msg["id"], "reboot_failed", str(err))
 
 
+@websocket_api.websocket_command({vol.Required("type"): "livebox/system/factory_reset"})
+@websocket_api.async_response
+async def ws_factory_reset(hass, connection, msg):
+    """Réinitialise la Livebox aux paramètres d'usine (NMC:reset) — IRRÉVERSIBLE."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.nmc._auth.post("NMC", "reset", {"reason": "webui_reset"})
+        connection.send_result(msg["id"], {"status": "resetting"})
+    except Exception as err:
+        connection.send_error(msg["id"], "factory_reset_failed", str(err))
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/dhcp/params/set",
     vol.Optional("start_ip"): str,
@@ -1369,6 +1460,78 @@ async def ws_delete_contact(hass, connection, msg):
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "contact_delete_failed", str(err))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/phone/dect"})
+@websocket_api.async_response
+async def ws_get_phone_dect(hass, connection, msg):
+    """Infos du combiné DECT (absent sur Livebox 6 et plus récentes)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    name = await _safe_post(coordinator, "DECT", "getName")
+    pin = await _safe_post(coordinator, "DECT", "getPIN")
+    rfpi = await _safe_post(coordinator, "DECT", "getRFPI")
+    version = await _safe_post(coordinator, "DECT", "getVersion")
+    connection.send_result(msg["id"], {
+        "name": name,
+        "pin": pin,
+        "rfpi": rfpi,
+        "software_version": version,
+    })
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/phone/calls/delete",
+    vol.Required("call_id"): str,
+})
+@websocket_api.async_response
+async def ws_phone_call_delete(hass, connection, msg):
+    """Supprime un appel de l'historique (VoiceService.VoiceApplication:clearCallList)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.voiceservice._auth.post(
+            "VoiceService.VoiceApplication", "clearCallList", {"callId": msg["call_id"]}
+        )
+        await coordinator.async_request_refresh()
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "call_delete_failed", str(err))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/phone/calls/delete_all"})
+@websocket_api.async_response
+async def ws_phone_calls_delete_all(hass, connection, msg):
+    """Vide l'historique d'appels (VoiceService.VoiceApplication:clearCallList sans callId)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.voiceservice._auth.post("VoiceService.VoiceApplication", "clearCallList")
+        await coordinator.async_request_refresh()
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "calls_delete_failed", str(err))
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/phone/ring"})
+@websocket_api.async_response
+async def ws_phone_ring(hass, connection, msg):
+    """Fait sonner le combiné (VoiceService.VoiceApplication:ring)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.voiceservice._auth.post("VoiceService.VoiceApplication", "ring")
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "phone_ring_failed", str(err))
 
 
 # ── Graphiques de trafic (historique en mémoire) ─────────────────────────────
@@ -2553,6 +2716,34 @@ async def ws_repeater_reboot(hass, connection, msg):
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "repeater_reboot_failed", str(err))
+    finally:
+        try:
+            await api.async_disconnect()
+        except Exception:
+            pass
+        await session.close()
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/repeater/factory_reset",
+    vol.Required("key"): str,
+})
+@websocket_api.async_response
+async def ws_repeater_factory_reset(hass, connection, msg):
+    """Réinitialise un répéteur aux paramètres d'usine (NMC:reset) — IRRÉVERSIBLE."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    api, session, err = await _connect_repeater(hass, coordinator, msg["key"])
+    if api is None:
+        connection.send_error(msg["id"], "not_configured", err)
+        return
+    try:
+        await api._auth.post("NMC", "reset", {"reason": "webui_reset"})
+        connection.send_result(msg["id"], {"status": "ok"})
+    except Exception as err:
+        connection.send_error(msg["id"], "repeater_factory_reset_failed", str(err))
     finally:
         try:
             await api.async_disconnect()
