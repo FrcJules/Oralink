@@ -42,9 +42,18 @@ npm run build        # écrit directement dans custom_components/livebox/www/rea
 ```
 
 Puis incrémenter `_PANEL_BUILD` dans `custom_components/livebox/__init__.py`
-(cache-busting de l'URL du module). Pour tester en local, copier/synchroniser
-`custom_components/livebox/` vers le `custom_components/` de l'instance Home
-Assistant, puis recharger l'intégration.
+(cache-busting de l'URL du module).
+
+**⚠️ Le dépôt Git n'est PAS synchronisé automatiquement avec l'instance Home
+Assistant.** Après un `git push` (ou même sans commit, pour tester), il faut
+explicitement déployer les fichiers modifiés : l'instance HA est montée en
+CIFS/SMB sur `//192.168.1.134/config/custom_components`, visible localement
+sous `/home/jules/projects/Oralink/Home-Assistant/livebox/`. Copier
+`custom_components/livebox/` vers ce dossier — **utiliser `cp`, pas `rsync`**
+(le point de montage CIFS ne supporte pas le pattern temp-file+rename de
+rsync, `cp` fonctionne) — puis recharger l'intégration dans Home Assistant
+(Paramètres → Appareils et services → Livebox → Recharger) pour que le
+changement prenne effet.
 
 ## Feuille de route — fonctionnalités à porter depuis LiveboxMonitor
 
