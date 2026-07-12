@@ -4,6 +4,7 @@ import App from "./App.jsx";
 import { HassProvider } from "./lib/hass-context.jsx";
 import { ShadowContainerProvider } from "./lib/shadow-container-context.jsx";
 import { ToastProvider } from "./lib/toast-context.jsx";
+import { ConfirmProvider } from "./lib/confirm-context.jsx";
 import "./index.css";
 
 // Home Assistant charge les panels custom comme un élément personnalisé
@@ -72,7 +73,9 @@ class LiveboxPanel extends HTMLElement {
         <ShadowContainerProvider value={this._portal}>
           <HassProvider hass={this._hass}>
             <ToastProvider>
-              <App />
+              <ConfirmProvider>
+                <App />
+              </ConfirmProvider>
             </ToastProvider>
           </HassProvider>
         </ShadowContainerProvider>

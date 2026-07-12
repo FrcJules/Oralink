@@ -806,10 +806,17 @@ async def ws_get_advanced(hass, connection, msg):
     ddns_global_raw = await _safe_post(coordinator, "DynDNS", "getGlobalEnable")
     ddns_global_enabled = bool(ddns_global_raw) if ddns_global_raw is not None else None
 
+    # NMC:getWANStatus returns a single "DNSServers" string mixing IPv4 and
+    # IPv6 entries comma-separated — there is no separate IPv6DNSServers
+    # field on real firmware, split them client-side instead.
+    all_dns_servers = [s.strip() for s in wan.get("DNSServers", "").split(",") if s.strip()]
+    dns_servers_v4 = [s for s in all_dns_servers if ":" not in s]
+    dns_servers_v6 = [s for s in all_dns_servers if ":" in s]
+
     connection.send_result(msg["id"], {
         "dns": {
-            "servers":      wan.get("DNSServers", ""),
-            "ipv6_servers": wan.get("IPv6DNSServers", ""),
+            "servers":      ",".join(dns_servers_v4),
+            "ipv6_servers": ",".join(dns_servers_v6),
         },
         "ddns": {
             "hosts": ddns_list,
@@ -825,7 +832,7 @@ async def ws_get_advanced(hass, connection, msg):
         },
         "ipv6": {
             "address": wan.get("IPv6Address", ""),
-            "prefix":  wan.get("IPv6Prefix", ""),
+            "prefix":  wan.get("IPv6DelegatedPrefix", ""),
             "gateway": wan.get("IPv6Gateway", ""),
             "enabled": bool(wan.get("IPv6Address")),
         },

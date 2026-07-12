@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
+import { useConfirm } from "../lib/confirm-context.jsx";
 import { Card, StateBox } from "../components/card.jsx";
 
 function Row({ label, value }) {
@@ -155,10 +156,11 @@ function DectCard() {
 export function PhoneTab() {
   const { data, loading, error, refresh } = useWsData("livebox/phone", {}, 60_000);
   const runAction = useWsAction();
+  const confirm = useConfirm();
   const { callers = [], contacts = [] } = data ?? {};
 
   const handleDelete = async (id, name) => {
-    if (!window.confirm("Supprimer ce contact du carnet de la Livebox ?")) return;
+    if (!await confirm({ title: "Supprimer le contact", message: `Supprimer « ${name ?? id} » du carnet de la Livebox ?` })) return;
     await runAction(
       { type: "livebox/phone/contacts/delete", unique_id: id },
       { success: `Contact « ${name ?? id} » supprimé.` },
@@ -172,7 +174,7 @@ export function PhoneTab() {
   };
 
   const handleDeleteAllCalls = async () => {
-    if (!window.confirm("Vider tout l'historique d'appels ?")) return;
+    if (!await confirm({ title: "Vider l'historique", message: "Vider tout l'historique d'appels ?" })) return;
     await runAction({ type: "livebox/phone/calls/delete_all" }, { success: "Historique d'appels vidé." });
     refresh();
   };

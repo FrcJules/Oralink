@@ -18,6 +18,7 @@ import {
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsCommand } from "../lib/hass-context.jsx";
 import { useWsAction } from "../lib/use-ws-action.js";
+import { useConfirm } from "../lib/confirm-context.jsx";
 
 // ── Icônes d'appareils (reprend la table de l'ancien panel React) ───────────
 
@@ -590,6 +591,7 @@ function SwitchEditorPanel({ devices, customSwitches, draft, setDraft, onSave, o
 export function TopologyGraph({ devices, topology }) {
   const callWs = useWsCommand();
   const runAction = useWsAction();
+  const confirm = useConfirm();
 
   const { data: positions, refresh: refreshPositions } = useWsData("livebox/topology/positions");
   const { data: customSwitches, refresh: refreshSwitches } = useWsData("livebox/topology/switches");
@@ -638,7 +640,7 @@ export function TopologyGraph({ devices, topology }) {
   }, [customSwitches, parentOverrides]);
 
   const handleResetPositions = async () => {
-    if (!window.confirm("Réinitialiser la disposition du graphe et oublier les positions enregistrées ?")) return;
+    if (!await confirm({ title: "Réinitialiser la disposition", message: "Réinitialiser la disposition du graphe et oublier les positions enregistrées ?" })) return;
     await runAction({ type: "livebox/topology/positions/reset" }, { success: "Disposition du graphe réinitialisée." });
     refreshPositions();
   };
@@ -662,7 +664,7 @@ export function TopologyGraph({ devices, topology }) {
   };
 
   const handleDeleteSwitch = async (switchId) => {
-    if (!window.confirm("Supprimer ce switch personnalisé ?")) return;
+    if (!await confirm({ title: "Supprimer le switch", message: "Supprimer ce switch personnalisé ?" })) return;
     await runAction({ type: "livebox/topology/switches/remove", switch_id: switchId }, { success: "Switch supprimé." });
     setSwitchDraft({ id: "", name: "", parent: "", devices: [] });
     refreshSwitches();

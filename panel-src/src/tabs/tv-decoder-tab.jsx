@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
+import { useConfirm } from "../lib/confirm-context.jsx";
 import { Card, StateBox } from "../components/card.jsx";
 
 const STATUS_LABELS = {
@@ -233,6 +234,7 @@ function DecoderCard({ decoder, onRemove, onSendKey }) {
 export function TvDecoderTab() {
   const { data, loading, error, refresh } = useWsData("livebox/tvdecoders");
   const runAction = useWsAction();
+  const confirm = useConfirm();
   const [adding, setAdding] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [candidates, setCandidates] = useState(null);
@@ -248,7 +250,7 @@ export function TvDecoderTab() {
   };
 
   const handleRemove = async (mac, name) => {
-    if (!window.confirm(`Oublier le décodeur « ${name} » ?`)) return;
+    if (!await confirm({ title: "Oublier le décodeur", message: `Oublier le décodeur « ${name} » ?` })) return;
     await runAction(
       { type: "livebox/tvdecoders/remove", mac },
       { success: `Décodeur « ${name} » oublié.` },

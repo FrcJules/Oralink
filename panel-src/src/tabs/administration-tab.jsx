@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Clock, HardDrive, Zap, Shield, RefreshCw, Router } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
+import { useConfirm } from "../lib/confirm-context.jsx";
 import { Card, StateBox } from "../components/card.jsx";
 
 function Row({ label, value }) {
@@ -195,6 +196,7 @@ function PowerCard() {
 function SystemSection() {
   const { data, loading, error, refresh } = useWsData("livebox/system", {}, 60_000);
   const runAction = useWsAction();
+  const confirm = useConfirm();
 
   const handleShowWifiPassword = async (enabled) => {
     await runAction(
@@ -220,7 +222,10 @@ function SystemSection() {
   };
 
   const handleRestore = async () => {
-    if (!window.confirm("Restaurer la configuration depuis la dernière sauvegarde ? La Livebox va redémarrer.")) return;
+    if (!await confirm({
+      title: "Restaurer la configuration",
+      message: "Restaurer la configuration depuis la dernière sauvegarde ? La Livebox va redémarrer.",
+    })) return;
     try {
       await runAction({ type: "livebox/system/restore/run" }, { success: "Restauration demandée — la Livebox va redémarrer." });
       refresh();
@@ -273,15 +278,20 @@ function SystemSection() {
 
 function DangerZoneCard() {
   const runAction = useWsAction();
+  const confirm = useConfirm();
   const [resetting, setResetting] = useState(false);
 
   const handleFactoryReset = async () => {
-    if (!window.confirm(
-      "⚠️ Réinitialiser la Livebox aux paramètres d'usine ?\n\n" +
-      "Toute la configuration (Wifi, contacts, redirections de port, etc.) sera effacée. " +
-      "Cette action est IRRÉVERSIBLE. Continuer ?"
-    )) return;
-    if (!window.confirm("Dernière confirmation : la Livebox va se réinitialiser et redémarrer. Confirmer ?")) return;
+    if (!await confirm({
+      title: "⚠️ Réinitialisation usine",
+      message: "Réinitialiser la Livebox aux paramètres d'usine ?\n\nToute la configuration (Wifi, contacts, redirections de port, etc.) sera effacée. Cette action est IRRÉVERSIBLE.",
+      danger: true,
+    })) return;
+    if (!await confirm({
+      title: "Dernière confirmation",
+      message: "La Livebox va se réinitialiser et redémarrer. Confirmer ?",
+      danger: true,
+    })) return;
     setResetting(true);
     try {
       await runAction({ type: "livebox/system/factory_reset" }, { success: "Réinitialisation usine lancée." });
@@ -603,11 +613,15 @@ function SpeedTestCard() {
 
 function WanReconnectCard() {
   const runAction = useWsAction();
+  const confirm = useConfirm();
   const [reconnecting, setReconnecting] = useState(false);
   const [done, setDone] = useState(false);
 
   const handleReconnect = async () => {
-    if (!window.confirm("Forcer une reconnexion WAN ? La connexion Internet sera coupée brièvement.")) return;
+    if (!await confirm({
+      title: "Reconnexion WAN",
+      message: "Forcer une reconnexion WAN ? La connexion Internet sera coupée brièvement.",
+    })) return;
     setReconnecting(true); setDone(false);
     try {
       await runAction({ type: "livebox/network/wan/reconnect" }, { success: "Reconnexion WAN initiée." });

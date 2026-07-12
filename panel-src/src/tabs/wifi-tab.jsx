@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, Settings, Wifi, WifiOff } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
+import { useDeviceNames } from "../lib/use-device-names.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -100,6 +101,7 @@ function RadioRow({ radio, onSet }) {
 
 function StationTable({ stations, onKick }) {
   const [kicking, setKicking] = useState(null);
+  const resolveName = useDeviceNames();
   const handleKick = async (vap, mac) => {
     setKicking(mac);
     try { await onKick(vap, mac); } finally { setKicking(null); }
@@ -110,6 +112,7 @@ function StationTable({ stations, onKick }) {
       <table className="w-full text-left text-xs">
         <thead>
           <tr className="lb-text-muted">
+            <th className="py-1 pr-3">Nom</th>
             <th className="py-1 pr-3">MAC</th>
             <th className="py-1 pr-3">IP</th>
             <th className="py-1 pr-3">RSSI</th>
@@ -120,7 +123,8 @@ function StationTable({ stations, onKick }) {
         <tbody>
           {stations.map((s) => (
             <tr key={s.mac} className="border-t lb-border">
-              <td className="py-1 pr-3 font-mono">{s.mac}</td>
+              <td className="py-1 pr-3 font-medium lb-text">{resolveName(s.mac, "—")}</td>
+              <td className="py-1 pr-3 font-mono lb-text-muted">{s.mac}</td>
               <td className="py-1 pr-3 lb-text-muted">{s.ip ?? "—"}</td>
               <td className="py-1 pr-3 lb-text-muted">{s.rssi != null ? `${s.rssi} dBm` : "—"}</td>
               <td className="py-1 pr-3 lb-text-muted">{fmtRate(s.tx_rate) ?? "—"}</td>

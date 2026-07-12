@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
+import { useConfirm } from "../lib/confirm-context.jsx";
+import { useDeviceNames } from "../lib/use-device-names.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 // ── Config form ────────────────────────────────────────────────────────────────
@@ -69,6 +71,8 @@ function Row({ label, value }) {
 
 function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
   const runAction = useWsAction();
+  const confirm = useConfirm();
+  const resolveName = useDeviceNames();
   const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -108,7 +112,7 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
   };
 
   const rebootRepeater = async () => {
-    if (!confirm(`Redémarrer le répéteur « ${repeaterName} » ?`)) return;
+    if (!await confirm({ title: "Redémarrer le répéteur", message: `Redémarrer le répéteur « ${repeaterName} » ?` })) return;
     setRebooting(true);
     try {
       await runAction(
@@ -119,11 +123,16 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
   };
 
   const resetRepeater = async () => {
-    if (!confirm(
-      `⚠️ Réinitialiser le répéteur « ${repeaterName} » aux paramètres d'usine ?\n\n` +
-      "Toute sa configuration sera effacée. Cette action est IRRÉVERSIBLE."
-    )) return;
-    if (!confirm("Dernière confirmation : continuer la réinitialisation ?")) return;
+    if (!await confirm({
+      title: "⚠️ Réinitialisation usine",
+      message: `Réinitialiser le répéteur « ${repeaterName} » aux paramètres d'usine ?\n\nToute sa configuration sera effacée. Cette action est IRRÉVERSIBLE.`,
+      danger: true,
+    })) return;
+    if (!await confirm({
+      title: "Dernière confirmation",
+      message: "Continuer la réinitialisation ?",
+      danger: true,
+    })) return;
     setResetting(true);
     try {
       await runAction(
@@ -226,6 +235,7 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-[var(--card-background-color)]">
                     <tr className="lb-text-muted">
+                      <th className="py-1 pr-3 text-left font-medium">Nom</th>
                       <th className="py-1 pr-3 text-left font-medium">MAC</th>
                       <th className="py-1 pr-3 text-left font-medium">IP</th>
                       <th className="py-1 pr-3 text-left font-medium">Signal</th>
@@ -234,7 +244,8 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
                   <tbody>
                     {stationList.map((s, i) => (
                       <tr key={s.MACAddress ?? i} className="border-t lb-border">
-                        <td className="py-1 pr-3 font-mono">{s.MACAddress ?? "—"}</td>
+                        <td className="py-1 pr-3 font-medium lb-text">{resolveName(s.MACAddress, "—")}</td>
+                        <td className="py-1 pr-3 font-mono lb-text-muted">{s.MACAddress ?? "—"}</td>
                         <td className="py-1 pr-3 lb-text-muted">{s.IPAddress ?? "—"}</td>
                         <td className="py-1 pr-3 lb-text-muted">
                           {s.SignalStrength != null ? `${s.SignalStrength} dBm` : "—"}
