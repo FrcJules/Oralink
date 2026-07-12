@@ -1,10 +1,12 @@
 import { useWsData } from "../lib/use-ws-data.js";
+import { useDeviceNames } from "../lib/use-device-names.js";
 import { Card, StateBox } from "../components/card.jsx";
 import { TopologyGraph } from "../components/topology-graph.jsx";
 
 export function TopologyTab() {
   const { data, loading, error } = useWsData("livebox/topology");
   const { data: devices } = useWsData("livebox/devices");
+  const resolveName = useDeviceNames();
 
   return (
     <div className="space-y-4">
@@ -35,8 +37,8 @@ export function TopologyTab() {
               : <ul className="space-y-1 text-sm">
                   {data.device_map.map((m) => (
                     <li key={m.device} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
-                      <span className="font-medium">{m.device}</span>
-                      <span className="lb-text-muted">via {m.via}</span>
+                      <span className="font-medium">{resolveName(m.device)}</span>
+                      <span className="lb-text-muted">via {resolveName(m.via)}</span>
                     </li>
                   ))}
                 </ul>
