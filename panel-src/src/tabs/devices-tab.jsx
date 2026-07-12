@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Zap, X, Lock, Unlock, Pencil, Check } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
@@ -84,7 +84,7 @@ function DeviceDetailDrawer({ device, onClose, onRenamed }) {
   const [savingName, setSavingName] = useState(false);
 
   // Fetch detailed device info on mount
-  useState(() => {
+  useEffect(() => {
     (async () => {
       setInfoLoading(true);
       try {
@@ -99,7 +99,7 @@ function DeviceDetailDrawer({ device, onClose, onRenamed }) {
         setSchedule(result ?? {});
       } catch { setSchedule({}); } finally { setScheduleLoading(false); }
     })();
-  }, []);
+  }, [device.mac]);
 
   const isBlocked = schedule?.scheduleInfo?.override === "Disable" && schedule?.scheduleInfo?.value === "Disable";
 

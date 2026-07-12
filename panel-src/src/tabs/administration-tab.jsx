@@ -281,9 +281,12 @@ function AdvancedSection() {
   const { dns, ddns, dmz, upnp, ipv6 } = data ?? {};
 
   const [upnpOverride, setUpnpOverride] = useState(null);
+  const [upnpToggling, setUpnpToggling] = useState(false);
   const upnpEnabled = upnpOverride ?? upnp?.enabled ?? false;
 
   const handleUpnpToggle = async (enabled) => {
+    if (upnpToggling) return;
+    setUpnpToggling(true);
     setUpnpOverride(enabled);
     try {
       const result = await runAction(
@@ -291,7 +294,22 @@ function AdvancedSection() {
         { success: enabled ? "UPnP activé." : "UPnP désactivé." },
       );
       setUpnpOverride(result?.enabled ?? enabled);
-    } catch { setUpnpOverride(null); }
+    } catch { setUpnpOverride(null); } finally { setUpnpToggling(false); }
+  };
+
+  const [ddnsToggling, setDdnsToggling] = useState(false);
+  const handleDdnsGlobalToggle = async () => {
+    if (ddnsToggling) return;
+    setDdnsToggling(true);
+    try {
+      await runAction(
+        { type: "livebox/ddns/global/toggle", enabled: !ddns.global_enabled },
+        { success: !ddns.global_enabled ? "DynDNS activé." : "DynDNS désactivé." },
+      );
+      refresh();
+    } finally {
+      setDdnsToggling(false);
+    }
   };
 
   const handleUpnpDelete = async (ruleId) => {
@@ -336,16 +354,11 @@ function AdvancedSection() {
                 <span className="flex items-center gap-2">
                   <span className="font-medium lb-text">{ddns.global_enabled ? "Oui" : "Non"}</span>
                   <button
-                    onClick={async () => {
-                      await runAction(
-                        { type: "livebox/ddns/global/toggle", enabled: !ddns.global_enabled },
-                        { success: !ddns.global_enabled ? "DynDNS activé." : "DynDNS désactivé." },
-                      );
-                      refresh();
-                    }}
-                    className="lb-link text-xs hover:underline"
+                    onClick={handleDdnsGlobalToggle}
+                    disabled={ddnsToggling}
+                    className="lb-link text-xs hover:underline disabled:opacity-40"
                   >
-                    {ddns.global_enabled ? "Désactiver" : "Activer"}
+                    {ddnsToggling ? "…" : ddns.global_enabled ? "Désactiver" : "Activer"}
                   </button>
                 </span>
               </div>
@@ -372,8 +385,9 @@ function AdvancedSection() {
               <span className="lb-text-muted">Activé</span>
               <span className="flex items-center gap-2">
                 <span className="font-medium lb-text">{upnpEnabled ? "Oui" : "Non"}</span>
-                <button onClick={() => handleUpnpToggle(!upnpEnabled)} className="lb-link text-xs hover:underline">
-                  {upnpEnabled ? "Désactiver" : "Activer"}
+                <button onClick={() => handleUpnpToggle(!upnpEnabled)} disabled={upnpToggling}
+                  className="lb-link text-xs hover:underline disabled:opacity-40">
+                  {upnpToggling ? "…" : upnpEnabled ? "Désactiver" : "Activer"}
                 </button>
               </span>
             </div>

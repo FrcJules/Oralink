@@ -6,11 +6,12 @@ import asyncio
 import time
 from uuid import uuid4
 
+import aiohttp
 import voluptuous as vol
 from aiosysbus import AIOSysbus
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession, async_create_clientsession
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from . import tv_decoder_api
 from .const import DOMAIN
@@ -2370,8 +2371,11 @@ async def ws_get_repeater_info(hass, connection, msg):
         return
 
     repeater_api = None
+    session = None
     try:
-        session = async_create_clientsession(hass)
+        # Dedicated short-lived session (not the shared hass one — this
+        # session must be closed here, not left open until HA shutdown).
+        session = aiohttp.ClientSession()
         repeater_api = AIOSysbus(
             username=username,
             password=password,
@@ -2433,6 +2437,8 @@ async def ws_get_repeater_info(hass, connection, msg):
                 await repeater_api.async_disconnect()
             except Exception:
                 pass
+        if session is not None:
+            await session.close()
 
 
 # ── Répéteur — contrôle Wifi et reboot ───────────────────────────────────────
@@ -2477,21 +2483,24 @@ async def ws_repeaters_scan_ips(hass, connection, msg):
 async def _connect_repeater(hass, coordinator, key):
     """Crée et authentifie une session sysbus vers un répéteur.
 
-    Returns (api, None) on success or (None, error_message) on failure.
+    Returns (api, session, None) on success or (None, None, error_message) on
+    failure. The caller owns the returned session and must close it (it is a
+    dedicated short-lived session, not the shared hass one).
     """
     store_entry = coordinator.repeater_store.get(key)
     ip = store_entry.get("ip", "")
     username = store_entry.get("username", "")
     password = store_entry.get("password", "")
     if not ip or not username or not password:
-        return None, "IP et/ou identifiants manquants — configurez le répéteur dans Administration > Répéteurs."
+        return None, None, "IP et/ou identifiants manquants — configurez le répéteur dans Administration > Répéteurs."
+    session = aiohttp.ClientSession()
     try:
-        session = async_create_clientsession(hass)
         api = AIOSysbus(username=username, password=password, session=session, host=ip, port=80, use_tls=False)
         await api.async_connect()
-        return api, None
+        return api, session, None
     except Exception as err:
-        return None, str(err)
+        await session.close()
+        return None, None, str(err)
 
 
 @websocket_api.websocket_command({
@@ -2506,7 +2515,7 @@ async def ws_repeater_wifi_set(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    api, err = await _connect_repeater(hass, coordinator, msg["key"])
+    api, session, err = await _connect_repeater(hass, coordinator, msg["key"])
     if api is None:
         connection.send_error(msg["id"], "not_configured", err)
         return
@@ -2521,6 +2530,7 @@ async def ws_repeater_wifi_set(hass, connection, msg):
             await api.async_disconnect()
         except Exception:
             pass
+        await session.close()
 
 
 @websocket_api.websocket_command({
@@ -2534,7 +2544,7 @@ async def ws_repeater_reboot(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    api, err = await _connect_repeater(hass, coordinator, msg["key"])
+    api, session, err = await _connect_repeater(hass, coordinator, msg["key"])
     if api is None:
         connection.send_error(msg["id"], "not_configured", err)
         return
@@ -2548,6 +2558,7 @@ async def ws_repeater_reboot(hass, connection, msg):
             await api.async_disconnect()
         except Exception:
             pass
+        await session.close()
 
 
 # ── Wifi global on/off + guest Wifi ──────────────────────────────────────────

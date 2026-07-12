@@ -725,6 +725,7 @@ export function TopologyGraph({ devices, topology }) {
       {editState && (
         <div className="border-t lb-border p-3">
           <ParentEditPanel
+            key={editState.mac}
             edit={editState}
             devices={devices}
             parentOverrides={parentOverrides ?? {}}

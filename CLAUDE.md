@@ -84,19 +84,22 @@ manquantes côté panel Oralink, par ordre de priorité suggéré :
    tolérant si l'objet n'existe pas sur le modèle, cf. `_safe_post`) et
    affichage du mot de passe Wifi sur l'écran
    (`coordinator.api.screen.async_get/set_show_wifi_password`).
-5. **Vue répéteurs Wifi détaillée** (`LmRepeaterTab`) et **table de routage**
-   (cette dernière `NMC.LAN:getStaticRoutes` — ⚠️ réservée aux modèles "Pro"
-   selon LiveboxMonitor, et absente du wrapper `aiosysbus` : nécessiterait un
-   appel `_auth.post` direct non documenté, à valider avant d'investir dessus).
-   ✅ *Première brique posée pour les répéteurs* : un onglet **"Répéteurs"**
-   permet de saisir et persister (en JSON, via `repeater_store.py` / helper
-   `Store` de HA, dans `.storage/livebox_repeaters_<entry_id>`) l'IP et les
-   identifiants de connexion de chaque répéteur détecté (commandes WS
-   `livebox/repeaters` et `livebox/repeaters/set` dans `panel.py`). Reste à
-   faire : utiliser ces identifiants pour se connecter réellement aux
-   répéteurs (session `AIOSysbus` éphémère pointée sur leur IP) et afficher
-   leurs informations détaillées (modèle, firmware, appareils associés,
-   actions...).
+5. ✅ **Vue répéteurs Wifi détaillée** (`LmRepeaterTab`) — onglet
+   **"Répéteurs"** : l'IP et les identifiants de chaque répéteur détecté dans
+   la topologie sont saisis et persistés en JSON (`repeater_store.py` / helper
+   `Store` de HA, dans `.storage/livebox_repeaters_<entry_id>`, commandes WS
+   `livebox/repeaters` et `livebox/repeaters/set`). Une fois le mot de passe
+   enregistré, le panel ouvre une session `AIOSysbus` éphémère pointée sur
+   l'IP du répéteur (`_connect_repeater` dans `panel.py`) pour afficher ses
+   infos détaillées (modèle, firmware, uptime, mémoire, Wifi, appareils
+   associés — `livebox/repeater/info`), activer/désactiver son Wifi
+   (`livebox/repeater/wifi/set`) et le redémarrer (`livebox/repeater/reboot`),
+   avec détection automatique des IP (`livebox/repeaters/scan_ips`) et
+   rafraîchissement périodique côté panel.
+   **Table de routage** (`NMC.LAN:getStaticRoutes` — ⚠️ réservée aux modèles
+   "Pro" selon LiveboxMonitor, et absente du wrapper `aiosysbus` :
+   nécessiterait un appel `_auth.post` direct non documenté) reste non
+   implémentée, à valider avant d'investir dessus.
 6. ✅ **Téléphone** (`LmPhoneTab`) — onglet **"Téléphone"** : historique
    d'appels (réutilise `coordinator.data["callers"]`, déjà peuplé par
    `async_get_callers`) et carnet de contacts de la Livebox

@@ -243,17 +243,22 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
 export function RepeatersTab() {
   const { data, loading, error, refresh } = useWsData("livebox/repeaters", {}, 30_000);
   const runAction = useWsAction();
-  const hasAutoScanned = useRef(false);
+  const scanInFlight = useRef(false);
+  const scannedKeys = useRef(new Set());
 
-  // Auto-detect IPs when data loads and any repeater has no IP configured
+  // Auto-detect IPs when data loads and any repeater has no IP configured yet.
+  // Tracks which repeater keys were already scanned (not "scanned once ever")
+  // so a repeater that appears later without an IP still gets picked up.
   useEffect(() => {
-    if (!data || hasAutoScanned.current) return;
-    const needsScan = data.some((r) => !r.ip);
-    if (!needsScan) return;
-    hasAutoScanned.current = true;
+    if (!data || scanInFlight.current) return;
+    const missing = data.filter((r) => !r.ip && !scannedKeys.current.has(r.key));
+    if (missing.length === 0) return;
+    scanInFlight.current = true;
+    missing.forEach((r) => scannedKeys.current.add(r.key));
     runAction({ type: "livebox/repeaters/scan_ips" }, {})
       .then((result) => { if (result?.found?.length > 0) refresh(); })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { scanInFlight.current = false; });
   }, [data]);
 
   return (

@@ -21,9 +21,12 @@ export function AdvancedTab() {
   // État optimiste pour UPnP — mis à jour depuis le résultat du toggle (qui
   // relit UPnP-IGD:get juste après le set) sans attendre le cycle coordinator.
   const [upnpOverride, setUpnpOverride] = useState(null);
+  const [upnpToggling, setUpnpToggling] = useState(false);
   const upnpEnabled = upnpOverride ?? upnp?.enabled ?? false;
 
   const handleUpnpToggle = async (enabled) => {
+    if (upnpToggling) return;
+    setUpnpToggling(true);
     setUpnpOverride(enabled);
     try {
       const result = await runAction(
@@ -33,6 +36,8 @@ export function AdvancedTab() {
       setUpnpOverride(result?.enabled ?? enabled);
     } catch {
       setUpnpOverride(null);
+    } finally {
+      setUpnpToggling(false);
     }
   };
   const handleUpnpDelete = async (ruleId) => {
@@ -93,8 +98,9 @@ export function AdvancedTab() {
               <span className="lb-text-muted">Activé</span>
               <span className="flex items-center gap-2">
                 <span className="font-medium lb-text">{upnpEnabled ? "Oui" : "Non"}</span>
-                <button onClick={() => handleUpnpToggle(!upnpEnabled)} className="lb-link text-xs hover:underline">
-                  {upnpEnabled ? "Désactiver" : "Activer"}
+                <button onClick={() => handleUpnpToggle(!upnpEnabled)} disabled={upnpToggling}
+                  className="lb-link text-xs hover:underline disabled:opacity-40">
+                  {upnpToggling ? "…" : upnpEnabled ? "Désactiver" : "Activer"}
                 </button>
               </span>
             </div>

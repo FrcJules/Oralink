@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -63,7 +63,10 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         # Rolling in-memory history for the "Graphiques" tab (~12h at 1 update/min)
         self._traffic_history: deque[dict[str, Any]] = deque(maxlen=720)
         # Per-device traffic history keyed by MAC address (~12h at 1 update/min)
-        self._device_history: dict[str, deque[dict[str, Any]]] = {}
+        # OrderedDict as a bounded LRU cache: keeps history growth in check even
+        # when devices churn through randomized/rotating MAC addresses.
+        self._device_history: OrderedDict[str, deque[dict[str, Any]]] = OrderedDict()
+        self._device_history_max_macs = 200
         # Rolling connection/disconnection log for the "Événements" tab
         self._event_log: deque[dict[str, Any]] = deque(maxlen=300)
 
@@ -363,7 +366,10 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             await self._make_request(self.api.voiceservice.async_get_calllist)
         ).get("status", {})
         for call in calls:
-            utc_dt = datetime.strptime(call["startTime"], "%Y-%m-%dT%H:%M:%SZ")
+            start_time = call.get("startTime")
+            if not start_time:
+                continue
+            utc_dt = datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%SZ")
             local_dt = utc_dt.replace(tzinfo=UTC).astimezone(tz=DEFAULT_TIME_ZONE)
             caller = {
                 "phone_number": call.get("remoteNumber"),
@@ -374,7 +380,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "origin": call.get("callOrigin"),
             }
             callers.append(caller)
-            if call["callType"] == "missed":
+            if call.get("callType") == "missed":
                 cmisseds.append(caller)
 
         return callers, cmisseds
@@ -635,6 +641,9 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             if t.get("rate_rx", 0) > 0 or t.get("rate_tx", 0) > 0:
                 if mac not in self._device_history:
                     self._device_history[mac] = deque(maxlen=720)
+                    while len(self._device_history) > self._device_history_max_macs:
+                        self._device_history.popitem(last=False)
+                self._device_history.move_to_end(mac)
                 self._device_history[mac].append({
                     "time": now_str,
                     "rate_rx": t.get("rate_rx", 0),

@@ -159,10 +159,8 @@ class LiveboxDeviceScannerEntity(  # pyrefly: ignore[inconsistent-inheritance]
                         signal_quality = "good"
                     case x if 50 <= x < 60:
                         signal_quality = "very good"
-                    case x if 30 <= x < 50:
-                        signal_quality = "excellent"
                     case _:
-                        signal_quality = "unknown"
+                        signal_quality = "excellent"
             else:
                 signal = None
                 signal_quality = None
