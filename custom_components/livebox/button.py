@@ -114,8 +114,10 @@ class LiveboxDeviceWolButton(  # pyrefly: ignore[inconsistent-inheritance]
 ):
     """Wake-on-LAN button for a tracked device.
 
-    Available only when the device is offline — sending WoL to an already-active
-    device is harmless but pointless, so HA marks it as unavailable then.
+    Always available, even when the device is currently online: sending WoL to
+    an already-active device is harmless, and greying the button out whenever
+    a device is connected was producing a large share of the integration's
+    "unavailable" entities for no functional benefit.
     """
 
     _attr_has_entity_name = True
@@ -140,12 +142,6 @@ class LiveboxDeviceWolButton(  # pyrefly: ignore[inconsistent-inheritance]
             identifiers={(DOMAIN, device_key)},
             name=device_name,
         )
-
-    @property
-    def available(self) -> bool:
-        """Usable only when the device is offline (needs waking)."""
-        device = self.coordinator.data.get("devices", {}).get(self._mac, {})
-        return not bool(device.get("Active", False))
 
     async def async_press(self) -> None:
         """Send a Wake-on-LAN magic packet via the Livebox WOL service."""
