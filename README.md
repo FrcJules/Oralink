@@ -16,7 +16,7 @@ référence pour gérer une Livebox), directement intégrée à Home Assistant.
 1. HACS → menu (⋮) → **Dépôts personnalisés**.
 2. URL : `https://github.com/FrcJules/Oralink`, catégorie **Intégration**.
 3. Chercher **Oralink** dans HACS et l'installer.
-4. Redémarrer Home Assistant, puis ajouter l'intégration **Orange Livebox**
+4. Redémarrer Home Assistant, puis ajouter l'intégration **Oralink**
    depuis Paramètres → Appareils et services.
 
 ⚠️ N'installez pas en parallèle `hass-livebox-component` (cyr-ius) : les deux
