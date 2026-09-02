@@ -1,7 +1,7 @@
 {
   "domain": "livebox",
-  "name": "Orange Livebox",
-  "codeowners": ["@cyr-ius"],
+  "name": "Oralink",
+  "codeowners": ["@cyr-ius", "@FrcJules"],
   "config_flow": true,
   "dependencies": ["ssdp"],
   "documentation": "https://github.com/FrcJules/Oralink",
@@ -15,5 +15,5 @@
       "friendlyName": "Orange Livebox"
     }
   ],
-  "version": "2.5.2"
+  "version": "1.0.0"
 }

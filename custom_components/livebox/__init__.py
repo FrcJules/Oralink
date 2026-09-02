@@ -1,4 +1,4 @@
-"""Orange Livebox."""
+"""Oralink."""
 
 import logging
 import json
@@ -74,7 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiveboxConfigEntry) -> b
         async_register_built_in_panel(
             hass,
             "custom",
-            "Livebox",
+            "Oralink",
             "mdi:router-network",
             frontend_url_path="livebox",
             require_admin=False,

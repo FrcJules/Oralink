@@ -14,7 +14,7 @@ PLATFORMS = [
     "select",
 ]
 
-TEMPLATE_SENSOR = "Orange Livebox"
+TEMPLATE_SENSOR = "Oralink"
 
 DEFAULT_USERNAME = "admin"
 DEFAULT_HOST = "192.168.1.1"
