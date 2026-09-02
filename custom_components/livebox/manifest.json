@@ -4,9 +4,9 @@
   "codeowners": ["@cyr-ius"],
   "config_flow": true,
   "dependencies": ["ssdp"],
-  "documentation": "https://github.com/cyr-ius/hass-livebox-component",
+  "documentation": "https://github.com/FrcJules/Oralink",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/cyr-ius/hass-livebox-component/issues",
+  "issue_tracker": "https://github.com/FrcJules/Oralink/issues",
   "loggers": ["aiosysbus"],
   "requirements": ["aiosysbus==1.2.4"],
   "ssdp": [
