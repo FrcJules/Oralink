@@ -69,14 +69,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiveboxConfigEntry) -> b
                 [StaticPathConfig("/livebox_panel", www_path, False)]
             )
         else:
-            async_remove_panel(hass, "livebox")
+            async_remove_panel(hass, "oralink")
         hass.data[f"{DOMAIN}_panel_url"] = module_url
         async_register_built_in_panel(
             hass,
             "custom",
             "Oralink",
             "mdi:router-network",
-            frontend_url_path="livebox",
+            frontend_url_path="oralink",
             require_admin=False,
             config={
                 "_panel_custom": {
@@ -105,7 +105,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: LiveboxConfigEntry) -> 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok and not hass.config_entries.async_entries(DOMAIN):
         if hass.data.pop(f"{DOMAIN}_panel_url", None):
-            async_remove_panel(hass, "livebox")
+            async_remove_panel(hass, "oralink")
     return unload_ok
 
 

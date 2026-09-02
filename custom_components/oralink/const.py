@@ -1,6 +1,6 @@
 """Constants for the Livebox component."""
 
-DOMAIN = "livebox"
+DOMAIN = "oralink"
 COORDINATOR = "coordinator"
 UNSUB_LISTENER = "unsubscribe_listener"
 LIVEBOX_API = "api"

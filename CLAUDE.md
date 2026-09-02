@@ -12,7 +12,7 @@ référence pour gérer une Livebox), mais directement intégrée à Home Assist
 ## Structure du repo
 
 ```
-custom_components/livebox/   # Intégration HA (à copier dans config/custom_components/)
+custom_components/oralink/   # Intégration HA (à copier dans config/custom_components/)
   __init__.py                # Setup, enregistrement du panel custom
   coordinator.py             # DataUpdateCoordinator — agrège les données de l'API Livebox
   panel.py                   # Commandes WebSocket (livebox/*) consommées par le panel React
@@ -20,6 +20,14 @@ custom_components/livebox/   # Intégration HA (à copier dans config/custom_com
   www/react-panel/           # Bundle généré par panel-src/ (livebox-panel-react.{js,css})
 panel-src/                   # Source du panel (React + Vite + Tailwind) — voir panel-src/README.md
 ```
+
+**Domaine HA : `oralink`** (`custom_components/oralink/`, `DOMAIN` dans
+`const.py`). Historiquement `livebox` — renommé pour éviter toute confusion
+avec l'intégration upstream `hass-livebox-component` (cyr-ius), qui utilise
+ce domaine. Les commandes WebSocket du panel (`panel.py`, préfixe `livebox/*`)
+et le chemin des assets statiques (`/livebox_panel/...`) gardent volontairement
+l'ancien nom — ce sont des identifiants internes indépendants du domaine HA,
+les changer impliquerait de reconstruire le bundle JS pour rien.
 
 ## Stack technique
 
@@ -38,22 +46,32 @@ panel-src/                   # Source du panel (React + Vite + Tailwind) — voi
 ```sh
 cd panel-src
 npm install
-npm run build        # écrit directement dans custom_components/livebox/www/react-panel/
+npm run build        # écrit directement dans custom_components/oralink/www/react-panel/
 ```
 
-Puis incrémenter `_PANEL_BUILD` dans `custom_components/livebox/__init__.py`
+Puis incrémenter `_PANEL_BUILD` dans `custom_components/oralink/__init__.py`
 (cache-busting de l'URL du module).
 
 **⚠️ Le dépôt Git n'est PAS synchronisé automatiquement avec l'instance Home
 Assistant.** Après un `git push` (ou même sans commit, pour tester), il faut
 explicitement déployer les fichiers modifiés : l'instance HA est montée en
 CIFS/SMB sur `//192.168.1.134/config/custom_components`, visible localement
-sous `/home/jules/projects/Oralink/Home-Assistant/livebox/`. Copier
-`custom_components/livebox/` vers ce dossier — **utiliser `cp`, pas `rsync`**
+sous `/home/jules/projects/Oralink/Home-Assistant/oralink/`. Copier
+`custom_components/oralink/` vers ce dossier — **utiliser `cp`, pas `rsync`**
 (le point de montage CIFS ne supporte pas le pattern temp-file+rename de
 rsync, `cp` fonctionne) — puis recharger l'intégration dans Home Assistant
-(Paramètres → Appareils et services → Livebox → Recharger) pour que le
+(Paramètres → Appareils et services → Oralink → Recharger) pour que le
 changement prenne effet.
+
+**Migration `livebox` → `oralink` (2026-09-02)** : le domaine a changé,
+l'ancien dossier `custom_components/livebox/` (et l'entrée d'intégration
+correspondante côté HA) reste en place tel quel et continue de fonctionner —
+rien n'est supprimé automatiquement. La bascule est manuelle : ajouter la
+nouvelle intégration **Oralink** (domaine `oralink`) depuis Paramètres →
+Appareils et services, reconstruire dashboards/automatisations sur les
+nouveaux `entity_id`, puis seulement à ce moment-là supprimer l'ancienne
+entrée `Livebox` et le dossier `custom_components/livebox/` sur le mount
+CIFS.
 
 ## Feuille de route — fonctionnalités à porter depuis LiveboxMonitor
 

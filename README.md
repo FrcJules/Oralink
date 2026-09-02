@@ -19,13 +19,18 @@ référence pour gérer une Livebox), directement intégrée à Home Assistant.
 4. Redémarrer Home Assistant, puis ajouter l'intégration **Oralink**
    depuis Paramètres → Appareils et services.
 
-⚠️ N'installez pas en parallèle `hass-livebox-component` (cyr-ius) : les deux
-utilisent le domaine `livebox` et s'écraseraient mutuellement.
+⚠️ Oralink utilise son propre domaine (`oralink`), distinct de `livebox`
+(`hass-livebox-component`, cyr-ius) — les deux peuvent techniquement coexister,
+mais ça duplique les appareils/entités pour la même box. Si tu migres depuis
+`hass-livebox-component` ou une version d'Oralink antérieure au domaine
+`oralink`, supprime l'ancienne entrée d'intégration puis reconfigure Oralink
+depuis zéro (nouveaux `entity_id`, anciennes automatisations/tableaux de bord
+à mettre à jour).
 
 ## Structure du repo
 
 ```
-custom_components/livebox/   # Intégration HA
+custom_components/oralink/   # Intégration HA
 panel-src/                   # Source du panel web (React + Vite + Tailwind)
 ```
 
