@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 // Le panel HA est servi en module ES unique depuis
-// custom_components/livebox/www/react-panel/. On construit donc un seul
+// custom_components/oralink/www/react-panel/. On construit donc un seul
 // bundle JS + un seul CSS, sans hash, directement dans ce dossier. Le custom
 // element (cf. main.jsx) ouvre un Shadow DOM et y pose lui-même un
 // <link rel="stylesheet"> vers ce fichier — c'est ce qui isole le panel du
@@ -12,7 +12,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
-    outDir: '../custom_components/livebox/www/react-panel',
+    outDir: '../custom_components/oralink/www/react-panel',
     emptyOutDir: true,
     rollupOptions: {
       input: 'src/main.jsx',

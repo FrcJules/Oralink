@@ -176,16 +176,21 @@ export default function App() {
 
       {/* Main area */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Mobile top bar */}
-        <header className="flex items-center gap-3 border-b lb-border px-4 py-3 md:hidden flex-shrink-0">
+        {/* Mobile top bar — z-50 + opaque background so it always stays above the
+            drawer overlay (z-40) and its backdrop (z-30): otherwise, while
+            Oralink's own nav drawer is open, this bar (and the HA menu button
+            that is the only way out of the panel) gets dimmed and unclickable
+            underneath the backdrop, trapping the user inside Oralink. */}
+        <header className="relative z-50 flex items-center gap-3 border-b lb-border bg-[var(--card-background-color,#fff)] px-4 py-3 md:hidden flex-shrink-0">
           {/* HA sidebar toggle (bubbles through Shadow DOM) */}
           <button
             ref={hassMenuRef}
-            onClick={() =>
+            onClick={() => {
+              setSidebarOpen(false);
               hassMenuRef.current?.dispatchEvent(
                 new CustomEvent("hass-toggle-menu", { bubbles: true, composed: true })
-              )
-            }
+              );
+            }}
             className="rounded-md p-1.5 lb-text-muted hover:bg-[var(--secondary-background-color)]"
             aria-label="Menu Home Assistant"
           >

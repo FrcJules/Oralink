@@ -142,10 +142,20 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             await self._record_traffic_history(device_traffic, wan_counters, fiber_stats)
 
             dhcp_leases = await self.async_get_dhcp_leases()
-            memory_status, ntp_synced, cgnat_active = await asyncio.gather(
+            (
+                memory_status,
+                ntp_synced,
+                cgnat_active,
+                device_services,
+                iptv_status,
+                connection_extra,
+            ) = await asyncio.gather(
                 self.async_get_memory_status(),
                 self.async_get_ntp_synced(),
                 self.async_get_cgnat_active(),
+                self.async_get_device_services(infos.get("BaseMAC", "")),
+                self.async_get_iptv_status(),
+                self.async_get_connection_extra(),
             )
             return {
                 "cmissed": cmissed,
@@ -174,6 +184,9 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "memory_status": memory_status,
                 "ntp_synced": ntp_synced,
                 "cgnat_active": cgnat_active,
+                "device_services": device_services,
+                "iptv_status": iptv_status,
+                "connection_extra": connection_extra,
                 "devices_wan_access": {
                     key: await self.async_get_device_schedule(key) for key in devices
                 },
@@ -917,6 +930,87 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.debug("Could not fetch CG-NAT status: %s", err)
             return False
+
+    async def async_get_device_services(self, base_mac: str) -> dict[str, Any]:
+        """Get per-service activation flags for the box itself (Devices.Device.<mac>:get)."""
+        if not base_mac:
+            return {}
+        try:
+            raw = await self.api._auth.post(f"Devices.Device.{base_mac}", "get", None)
+            return (raw or {}).get("status", {}) or {}
+        except Exception as err:
+            _LOGGER.debug("Could not fetch device services: %s", err)
+            return {}
+
+    async def async_get_iptv_status(self) -> dict[str, Any]:
+        """Get IPTV status, multi-screens flag and config (NMC.OrangeTV)."""
+        try:
+            status_raw, multiscreens_raw, config_raw = await asyncio.gather(
+                self.api._auth.post("NMC.OrangeTV", "getIPTVStatus", None),
+                self.api._auth.post("NMC.OrangeTV", "getIPTVMultiScreens", None),
+                self.api._auth.post("NMC.OrangeTV", "getIPTVConfig", None),
+            )
+        except Exception as err:
+            _LOGGER.debug("Could not fetch IPTV status: %s", err)
+            return {"status": None, "multi_screens": None, "config": {}}
+
+        # getIPTVStatus response shape: {"status": {"IPTVStatus": [...]}} on most
+        # models, or the list directly on others.
+        status = (status_raw or {}).get("status")
+        iptv_status = status.get("IPTVStatus") if isinstance(status, dict) else status
+
+        multiscreens_status = (multiscreens_raw or {}).get("status")
+        multiscreens = (
+            multiscreens_status.get("Enable")
+            if isinstance(multiscreens_status, dict)
+            else multiscreens_status
+        )
+
+        config_status = (config_raw or {}).get("status")
+
+        return {
+            "status": iptv_status,
+            "multi_screens": multiscreens,
+            "config": config_status if isinstance(config_status, dict) else {},
+        }
+
+    async def async_get_connection_extra(self) -> dict[str, Any]:
+        """Get primary WAN error code, VLAN ID, MTU, IPv6 autodetect mode and CG-NAT status."""
+        try:
+            error_raw, vlan_raw, mtu_raw, autodetect_raw, cgnat_raw = await asyncio.gather(
+                self.api._auth.post("NMC.Error", "getPrimaryErrorCode", None),
+                self.api._auth.post("NeMo.Intf.data", "getFirstParameter", {"name": "VLANID"}),
+                self.api._auth.post("NeMo.Intf.data", "getFirstParameter", {"name": "MTU"}),
+                self.api._auth.post("NMC.Autodetect", "get", None),
+                self.api._auth.post("NMC.ServiceEligibility.DSLITE", "get", None),
+            )
+        except Exception as err:
+            _LOGGER.debug("Could not fetch connection extra status: %s", err)
+            return {"error_code": None, "vlan_id": None, "mtu": None, "autodetect": {}, "cgnat": {}}
+
+        error_code = (error_raw or {}).get("status")
+        vlan_raw_val = (vlan_raw or {}).get("status")
+        mtu_raw_val = (mtu_raw or {}).get("status")
+        autodetect = (autodetect_raw or {}).get("status")
+        cgnat = (cgnat_raw or {}).get("status")
+
+        try:
+            vlan_id = int(vlan_raw_val) if vlan_raw_val is not None else None
+        except (TypeError, ValueError):
+            vlan_id = None
+        try:
+            mtu = int(mtu_raw_val) if mtu_raw_val is not None else None
+        except (TypeError, ValueError):
+            mtu = None
+
+        return {
+            "error_code": error_code if isinstance(error_code, str)
+                else (str(error_code) if error_code is not None else None),
+            "vlan_id": vlan_id,
+            "mtu": mtu,
+            "autodetect": autodetect if isinstance(autodetect, dict) else {},
+            "cgnat": cgnat if isinstance(cgnat, dict) else {},
+        }
 
     async def _make_request(
         self, func: Callable[..., Any], *args: Any

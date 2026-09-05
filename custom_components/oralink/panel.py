@@ -357,8 +357,7 @@ async def ws_ptf_delete(hass, connection, msg):
 
 @callback
 @websocket_api.websocket_command({vol.Required("type"): "livebox/network"})
-@websocket_api.async_response
-async def ws_get_network(hass, connection, msg):
+def ws_get_network(hass, connection, msg):
     coordinator = _get_coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
@@ -370,9 +369,10 @@ async def ws_get_network(hass, connection, msg):
     counters = data.get("wan_counters", {})
     infos = data.get("infos", {}) or {}
 
-    # Memory: DeviceInfo.MemoryStatus:get — values in kB
-    mem_raw = await _safe_post(coordinator, "DeviceInfo.MemoryStatus", "get")
-    mem = mem_raw if isinstance(mem_raw, dict) else {}
+    # Memory: DeviceInfo.MemoryStatus:get — values in kB. Polled once per
+    # coordinator cycle (self.data["memory_status"]) rather than live here, so
+    # this handler stays instant instead of round-tripping to the router.
+    mem = data.get("memory_status", {}) or {}
     memory = {
         "total_mb": round(mem["Total"] / 1024, 0) if mem.get("Total") else None,
         "free_mb": round(mem["Free"] / 1024, 0) if mem.get("Free") else None,
@@ -380,13 +380,8 @@ async def ws_get_network(hass, connection, msg):
         "buffered_mb": round(mem["Buffered"] / 1024, 0) if mem.get("Buffered") else None,
     }
 
-    # Service active flags: Devices.Device.<mac>:get
-    base_mac = infos.get("BaseMAC", "")
-    dev_config = {}
-    if base_mac:
-        raw = await _safe_post(coordinator, f"Devices.Device.{base_mac}", "get")
-        if isinstance(raw, dict):
-            dev_config = raw
+    # Service active flags: Devices.Device.<mac>:get — same cached-per-cycle pattern.
+    dev_config = data.get("device_services", {}) or {}
 
     connection.send_result(msg["id"], {
         "interfaces": [
@@ -2332,38 +2327,22 @@ async def ws_get_routing_table(hass, connection, msg):
 
 # ── IPTV status et configuration ──────────────────────────────────────────────
 
+@callback
 @websocket_api.websocket_command({vol.Required("type"): "livebox/iptv"})
-@websocket_api.async_response
-async def ws_get_iptv(hass, connection, msg):
-    """Retourne le statut IPTV (NMC.OrangeTV) et la configuration associée."""
+def ws_get_iptv(hass, connection, msg):
+    """Retourne le statut IPTV (NMC.OrangeTV) et la configuration associée.
+
+    Polled once per coordinator cycle (self.data["iptv_status"]) rather than
+    live here, so this handler stays instant instead of round-tripping to the
+    router on every panel refresh.
+    """
     coordinator = _get_coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
 
-    # getIPTVStatus returns {"status": {"data": {"IPTVStatus": [...]}}}
-    status_raw = await _safe_post(coordinator, "NMC.OrangeTV", "getIPTVStatus")
-    # getIPTVMultiScreens
-    multiscreens_raw = await _safe_post(coordinator, "NMC.OrangeTV", "getIPTVMultiScreens")
-    # getIPTVConfig
-    config_raw = await _safe_post(coordinator, "NMC.OrangeTV", "getIPTVConfig")
-
-    # IPTVStatus response shape: the raw sysbus result has status.data.IPTVStatus
-    # _safe_post already unwraps .status — so status_raw is the data dict or None
-    iptv_status = None
-    if isinstance(status_raw, dict):
-        iptv_status = status_raw.get("IPTVStatus") or status_raw
-
-    multiscreens = None
-    if isinstance(multiscreens_raw, dict):
-        multiscreens = multiscreens_raw.get("Enable")
-    elif multiscreens_raw is not None:
-        multiscreens = multiscreens_raw
-
-    connection.send_result(msg["id"], {
-        "status": iptv_status,
-        "multi_screens": multiscreens,
-        "config": config_raw if isinstance(config_raw, dict) else {},
+    connection.send_result(msg["id"], coordinator.data.get("iptv_status", {}) or {
+        "status": None, "multi_screens": None, "config": {},
     })
 
 
@@ -2383,40 +2362,30 @@ async def ws_get_voip_trunks(hass, connection, msg):
 
 # ── Statut de connexion NMC + VLAN/MTU ───────────────────────────────────────
 
+@callback
 @websocket_api.websocket_command({vol.Required("type"): "livebox/connection/status"})
-@websocket_api.async_response
-async def ws_get_connection_status(hass, connection, msg):
-    """Retourne le statut de connexion complet : NMC, erreur primaire, VLAN, MTU."""
+def ws_get_connection_status(hass, connection, msg):
+    """Retourne le statut de connexion complet : NMC, erreur primaire, VLAN, MTU.
+
+    All of this is polled once per coordinator cycle (self.data["nmc"] /
+    ["connection_extra"]) rather than live here, so this handler stays
+    instant instead of round-tripping to the router on every panel refresh.
+    """
     coordinator = _get_coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
 
-    nmc_raw, error_raw, vlan_raw, mtu_raw, autodetect_raw, cgnat_raw = await asyncio.gather(
-        _safe_post(coordinator, "NMC", "get"),
-        _safe_post(coordinator, "NMC.Error", "getPrimaryErrorCode"),
-        _safe_post(coordinator, "NeMo.Intf.data", "getFirstParameter", {"name": "VLANID"}),
-        _safe_post(coordinator, "NeMo.Intf.data", "getFirstParameter", {"name": "MTU"}),
-        _safe_post(coordinator, "NMC.Autodetect", "get"),
-        _safe_post(coordinator, "NMC.ServiceEligibility.DSLITE", "get"),
-    )
-
-    try:
-        vlan_id = int(vlan_raw) if vlan_raw is not None else None
-    except (TypeError, ValueError):
-        vlan_id = None
-    try:
-        mtu = int(mtu_raw) if mtu_raw is not None else None
-    except (TypeError, ValueError):
-        mtu = None
+    data = coordinator.data
+    extra = data.get("connection_extra", {}) or {}
 
     connection.send_result(msg["id"], {
-        "nmc": nmc_raw if isinstance(nmc_raw, dict) else {},
-        "error_code": error_raw if isinstance(error_raw, str) else (str(error_raw) if error_raw is not None else None),
-        "vlan_id": vlan_id,
-        "mtu": mtu,
-        "autodetect": autodetect_raw if isinstance(autodetect_raw, dict) else {},
-        "cgnat": cgnat_raw if isinstance(cgnat_raw, dict) else None,
+        "nmc": data.get("nmc", {}) or {},
+        "error_code": extra.get("error_code"),
+        "vlan_id": extra.get("vlan_id"),
+        "mtu": extra.get("mtu"),
+        "autodetect": extra.get("autodetect", {}) or {},
+        "cgnat": extra.get("cgnat") or None,
     })
 
 

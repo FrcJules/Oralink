@@ -17,10 +17,19 @@
 :host {
   --lb-brand: #ff7900;
   --lb-brand-contrast: #ffffff;
-  /* Flex column so #root can fill the HA panel area with height: 100% */
+  /* Flex column so #root can fill the HA panel area. `min-height: 100%` alone
+     depends on every ancestor up to <html> resolving a definite height for
+     the percentage to work against — when that chain doesn't resolve (it
+     doesn't always, depending on how HA mounts the custom panel), this box
+     collapses to its content height instead. On a short tab that leaves the
+     whole panel — sidebar included — short of the actual screen bottom. Viewport
+     units don't depend on that chain, so they're used as the floor instead;
+     `100%` stays as a fallback for very old browsers without dvh support. */
   display: flex;
   flex-direction: column;
   min-height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--primary-background-color, #f8fafc);
   color: var(--primary-text-color, #0f172a);
 }
