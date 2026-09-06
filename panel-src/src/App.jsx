@@ -176,12 +176,18 @@ export default function App() {
 
       {/* Main area */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Mobile top bar — z-50 + opaque background so it always stays above the
-            drawer overlay (z-40) and its backdrop (z-30): otherwise, while
-            Oralink's own nav drawer is open, this bar (and the HA menu button
-            that is the only way out of the panel) gets dimmed and unclickable
-            underneath the backdrop, trapping the user inside Oralink. */}
-        <header className="relative z-50 flex items-center gap-3 border-b lb-border bg-[var(--card-background-color,#fff)] px-4 py-3 md:hidden flex-shrink-0">
+        {/* Mobile top bar — `fixed` (not just a high z-index in normal flow):
+            it must be completely immune to whatever the page around it is
+            doing, since it's the only way to close the drawer or reach HA's
+            own menu. A normal-flow header can still end up not receiving
+            taps — pushed out of view by a page-level scroll some tall tab
+            triggers elsewhere, or just fragile nested-flex sizing — even
+            when it visually outranks the drawer (z-40) and backdrop (z-30)
+            on z-index alone. Fixed positioning sidesteps all of that: it's
+            always painted at the same spot relative to the viewport,
+            independent of scroll or layout state. Content below gets
+            matching top padding (h-14) so it doesn't start underneath it. */}
+        <header className="fixed inset-x-0 top-0 z-50 flex h-14 items-center gap-3 border-b lb-border bg-[var(--card-background-color,#fff)] px-4 md:hidden">
           {/* HA sidebar toggle (bubbles through Shadow DOM) */}
           <button
             ref={hassMenuRef}
@@ -229,7 +235,10 @@ export default function App() {
             which pushes the mobile header (a normal, non-fixed element) out
             of view on scroll while the fixed nav drawer stays pinned to the
             viewport — looking like the drawer took over the screen. */}
-        <main className="flex-1 min-h-0 overflow-hidden p-4 md:p-6 flex flex-col">
+        {/* pt-[4.5rem] clears the fixed mobile header (h-14 = 3.5rem) on top of
+            the usual p-4 spacing; md:pt-6 resets it back to plain md:p-6 on
+            desktop, where that header doesn't exist. */}
+        <main className="flex-1 min-h-0 overflow-hidden p-4 pt-[4.5rem] md:p-6 md:pt-6 flex flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto lb-scroll">
             {TAB_RENDER[activeTab]?.()}
           </div>
