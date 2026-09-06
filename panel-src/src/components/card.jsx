@@ -33,12 +33,31 @@ export function Card({ title, actions, children, id, fill }) {
  * (numéro de série, MAC, version de firmware…) s'y retrouve alors compressée
  * sur plusieurs lignes très étroites même sans déborder à proprement parler.
  * Empiler les deux sur mobile donne à la valeur toute la largeur de la ligne.
+ *
+ * Une valeur qui contient des virgules (ex: plusieurs serveurs DNS IPv4/IPv6
+ * renvoyés tels quels par la Livebox, sans espace après la virgule) n'a aucun
+ * point de coupure naturel pour le navigateur — une virgule seule n'est pas
+ * une occasion de retour à la ligne comme l'est un espace, contrairement à
+ * `break-words` qui ne coupe qu'en dernier recours au milieu d'un "mot".
+ * Résultat : la ligne entière débordait horizontalement. On éclate ce genre
+ * de valeur sur plusieurs lignes, une par élément — plus lisible, et plus de
+ * risque de débordement.
  */
 export function Row({ label, value }) {
+  const items = typeof value === "string" && value.includes(",")
+    ? value.split(",").map((v) => v.trim()).filter(Boolean)
+    : null;
+
   return (
     <div className="flex flex-col gap-0.5 border-b lb-border py-1.5 text-sm last:border-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3 sm:py-1">
       <span className="lb-text-muted sm:flex-shrink-0">{label}</span>
-      <span className="break-words font-medium lb-text sm:min-w-0 sm:text-right">{value ?? "—"}</span>
+      <span className="break-words font-medium lb-text sm:min-w-0 sm:text-right">
+        {items ? (
+          <span className="flex flex-col sm:items-end">
+            {items.map((item, i) => <span key={i}>{item}</span>)}
+          </span>
+        ) : (value ?? "—")}
+      </span>
     </div>
   );
 }
