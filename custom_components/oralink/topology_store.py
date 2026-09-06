@@ -27,14 +27,16 @@ class TopologyStore:
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}_topology_positions_{entry_id}"
         )
-        self._data: dict[str, Any] = {"positions": {}, "switches": [], "parent_overrides": {}}
+        self._data: dict[str, Any] = {
+            "positions": {}, "switches": [], "parent_overrides": {}, "type_overrides": {},
+        }
 
     async def async_load(self) -> dict[str, Any]:
         """Charge l'état depuis le fichier JSON (appelé au setup).
 
         Migre l'ancien format (un simple dict de positions à plat) vers le
-        nouveau, qui regroupe aussi les switchs personnalisés et les
-        rattachements forcés.
+        nouveau, qui regroupe aussi les switchs personnalisés, les
+        rattachements forcés et les types d'appareil forcés.
         """
         raw = await self._store.async_load() or {}
         if "positions" in raw or "switches" in raw or "parent_overrides" in raw:
@@ -42,9 +44,10 @@ class TopologyStore:
                 "positions": raw.get("positions") or {},
                 "switches": raw.get("switches") or [],
                 "parent_overrides": raw.get("parent_overrides") or {},
+                "type_overrides": raw.get("type_overrides") or {},
             }
         else:
-            self._data = {"positions": raw, "switches": [], "parent_overrides": {}}
+            self._data = {"positions": raw, "switches": [], "parent_overrides": {}, "type_overrides": {}}
         return self._data
 
     @property
@@ -61,6 +64,11 @@ class TopologyStore:
     def parent_overrides(self) -> dict[str, str]:
         """Rattachements forcés (mac → mac du relais parent), par appareil."""
         return self._data["parent_overrides"]
+
+    @property
+    def type_overrides(self) -> dict[str, str]:
+        """Types d'appareil forcés (mac → clé d'icône), quand la détection Livebox est fausse."""
+        return self._data["type_overrides"]
 
     async def _async_save(self) -> None:
         await self._store.async_save(self._data)
@@ -98,4 +106,12 @@ class TopologyStore:
             self._data["parent_overrides"][mac] = parent
         else:
             self._data["parent_overrides"].pop(mac, None)
+        await self._async_save()
+
+    async def async_set_type(self, mac: str, device_type: str | None) -> None:
+        """Force (ou efface, si `device_type` est vide) le type d'un appareil."""
+        if device_type:
+            self._data["type_overrides"][mac] = device_type
+        else:
+            self._data["type_overrides"].pop(mac, None)
         await self._async_save()

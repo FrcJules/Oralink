@@ -175,6 +175,7 @@ def ws_get_devices(hass, connection, msg):
 
     devices = coordinator.data.get("devices", {})
     traffic = coordinator.data.get("device_traffic", {})
+    type_overrides = coordinator.topology_store.type_overrides
 
     result = []
     for mac, d in devices.items():
@@ -184,7 +185,9 @@ def ws_get_devices(hass, connection, msg):
             "name": d.get("Name", mac),
             "ip": d.get("IPAddress", ""),
             "active": d.get("Active", False),
-            "type": d.get("DeviceType", ""),
+            # Un type forcé manuellement (détection Livebox erronée) prime sur
+            # le DeviceType brut — cf. livebox/topology/type/set.
+            "type": type_overrides.get(mac) or d.get("DeviceType", ""),
             "manufacturer": d.get("Manufacturer", ""),
             "interface": d.get("InterfaceName", ""),
             "band": d.get("OperatingFrequencyBand", ""),
@@ -638,6 +641,37 @@ async def ws_set_topology_parent(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     await coordinator.topology_store.async_set_parent(msg["mac"], msg.get("parent") or None)
+    connection.send_result(msg["id"])
+
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/topology/types"})
+def ws_get_topology_types(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], coordinator.topology_store.type_overrides)
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/topology/type/set",
+    vol.Required("mac"): str,
+    vol.Optional("device_type"): vol.Any(str, None),
+})
+@websocket_api.async_response
+async def ws_set_topology_type(hass, connection, msg):
+    """Force (ou efface) le type affiché d'un appareil quand la détection Livebox est fausse.
+
+    L'override est appliqué dans `ws_get_devices`, donc reflété partout où la
+    liste `livebox/devices` est utilisée (onglet Appareils, topologie, tableau
+    des appareils connectés d'un répéteur).
+    """
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    await coordinator.topology_store.async_set_type(msg["mac"], msg.get("device_type") or None)
     connection.send_result(msg["id"])
 
 
@@ -2551,14 +2585,12 @@ async def ws_get_repeater_info(hass, connection, msg):
         nmc_wifi = await _rpost("NMC.Wifi", "get") or {}
         memory_raw = await _rpost("DeviceInfo.MemoryStatus", "get") or {}
 
-        # Get associated wifi stations from repeater
-        stations_raw = await _rpost("NeMo.Intf.lan", "getMIBs", {"mibs": "wlanvap"}) or {}
-        stations = {}
-        if isinstance(stations_raw, dict):
-            wlanvap = stations_raw.get("wlanvap", {})
-            if isinstance(wlanvap, dict):
-                stations = wlanvap
-
+        # Associated wifi stations are NOT queried here anymore: the panel
+        # shows the repeater's connected devices from the Livebox's own
+        # topology/device list instead (livebox/devices + livebox/topology),
+        # which already has correct IP/type/signal and no duplicates — the
+        # repeater's own wlanvap MIB only reports MAC/signal (no IP) and could
+        # list the same station under several VAPs.
         connection.send_result(msg["id"], {
             "device_info": device_info,
             "wifi": nmc_wifi,
@@ -2566,7 +2598,6 @@ async def ws_get_repeater_info(hass, connection, msg):
                 "total_mb": round(memory_raw["Total"] / 1024, 0) if memory_raw.get("Total") else None,
                 "free_mb": round(memory_raw["Free"] / 1024, 0) if memory_raw.get("Free") else None,
             },
-            "stations": stations,
         })
     except Exception as err:
         connection.send_error(msg["id"], "repeater_info_failed", str(err))

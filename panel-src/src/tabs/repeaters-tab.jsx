@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { useConfirm } from "../lib/confirm-context.jsx";
-import { useDeviceNames } from "../lib/use-device-names.js";
 import { Card, StateBox } from "../components/card.jsx";
+import { DeviceTable } from "../components/device-table.jsx";
 
 // ── Config form ────────────────────────────────────────────────────────────────
 
@@ -72,7 +72,6 @@ function Row({ label, value }) {
 function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
   const runAction = useWsAction();
   const confirm = useConfirm();
-  const resolveName = useDeviceNames();
   const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -145,10 +144,6 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
   const di = info?.device_info ?? {};
   const wifi = info?.wifi ?? {};
   const mem = info?.memory ?? {};
-  const stations = info?.stations ?? {};
-  const stationList = Object.values(stations).flatMap((vap) =>
-    Object.values(vap?.AssociatedDevice ?? vap?.Stations ?? {})
-  );
   const wifiEnabled = wifi?.Enable ?? wifi?.Status;
 
   return (
@@ -226,38 +221,6 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
             </div>
           )}
 
-          {stationList.length > 0 && (
-            <div className="sm:col-span-2">
-              <p className="mb-1 text-xs font-semibold uppercase lb-text-muted">
-                Appareils connectés ({stationList.length})
-              </p>
-              <div className="overflow-x-auto overflow-y-auto max-h-[30vh]">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-[var(--card-background-color)]">
-                    <tr className="lb-text-muted">
-                      <th className="py-1 pr-3 text-left font-medium">Nom</th>
-                      <th className="py-1 pr-3 text-left font-medium">MAC</th>
-                      <th className="py-1 pr-3 text-left font-medium">IP</th>
-                      <th className="py-1 pr-3 text-left font-medium">Signal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stationList.map((s, i) => (
-                      <tr key={s.MACAddress ?? i} className="border-t lb-border">
-                        <td className="py-1 pr-3 font-medium lb-text">{resolveName(s.MACAddress, "—")}</td>
-                        <td className="py-1 pr-3 font-mono lb-text-muted">{s.MACAddress ?? "—"}</td>
-                        <td className="py-1 pr-3 lb-text-muted">{s.IPAddress ?? "—"}</td>
-                        <td className="py-1 pr-3 lb-text-muted">
-                          {s.SignalStrength != null ? `${s.SignalStrength} dBm` : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           {Object.keys(di).length === 0 && Object.keys(wifi).length === 0 && !loading && (
             <p className="sm:col-span-2 text-sm lb-text-muted">
               Aucune donnée reçue — vérifiez l'IP et les identifiants.
@@ -273,6 +236,9 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
 
 export function RepeatersTab() {
   const { data, loading, error, refresh } = useWsData("livebox/repeaters", {}, 30_000);
+  const { data: devices } = useWsData("livebox/devices", {}, 3_000);
+  const { data: topology } = useWsData("livebox/topology");
+  const { data: parentOverrides } = useWsData("livebox/topology/parents");
   const runAction = useWsAction();
   const scanInFlight = useRef(false);
   const scannedKeys = useRef(new Set());
@@ -292,6 +258,27 @@ export function RepeatersTab() {
       .finally(() => { scanInFlight.current = false; });
   }, [data]);
 
+  // Which repeater each device is connected via — same API map + manual
+  // overrides ("rattachement forcé") used by the topology graph, so a device
+  // reassigned there also moves in this list. Devices connected directly to
+  // the Livebox (not present here) never show under any repeater.
+  const devicesByRepeater = useMemo(() => {
+    const byRepeater = new Map();
+    if (!devices || !topology) return byRepeater;
+    const viaMap = new Map((topology.device_map ?? []).map((e) => [e.device, e.via]));
+    for (const [mac, parent] of Object.entries(parentOverrides ?? {})) {
+      if (parent) viaMap.set(mac, parent);
+      else viaMap.delete(mac);
+    }
+    for (const d of devices) {
+      const via = viaMap.get(d.mac);
+      if (!via) continue;
+      if (!byRepeater.has(via)) byRepeater.set(via, []);
+      byRepeater.get(via).push(d);
+    }
+    return byRepeater;
+  }, [devices, topology, parentOverrides]);
+
   return (
     <Card title="Répéteurs Wifi">
       <StateBox loading={loading} error={error} />
@@ -302,27 +289,41 @@ export function RepeatersTab() {
 
       {data && data.length > 0 && (
         <div className="space-y-6">
-          {data.map((repeater) => (
-            <div key={repeater.key} className="rounded-xl border lb-border p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <span className="text-base">📡</span>
-                <span className="font-semibold lb-text">{repeater.name}</span>
-                {repeater.ip && (
-                  <span className="text-xs lb-text-muted font-mono">{repeater.ip}</span>
+          {data.map((repeater) => {
+            const connectedDevices = devicesByRepeater.get(repeater.key) ?? [];
+            return (
+              <div key={repeater.key} className="rounded-xl border lb-border p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-base">📡</span>
+                  <span className="font-semibold lb-text">{repeater.name}</span>
+                  {repeater.ip && (
+                    <span className="text-xs lb-text-muted font-mono">{repeater.ip}</span>
+                  )}
+                </div>
+
+                <RepeaterForm repeater={repeater} onSaved={refresh} />
+
+                {connectedDevices.length > 0 && (
+                  <div className="mt-4 border-t lb-border pt-4">
+                    <p className="mb-1 text-xs font-semibold uppercase lb-text-muted">
+                      Appareils connectés ({connectedDevices.length})
+                    </p>
+                    <div className="max-h-[40vh] overflow-y-auto lb-scroll rounded border lb-border">
+                      <DeviceTable devices={connectedDevices} />
+                    </div>
+                  </div>
+                )}
+
+                {repeater.has_password ? (
+                  <RepeaterInfoPanel repeaterKey={repeater.key} repeaterName={repeater.name} />
+                ) : (
+                  <p className="mt-3 text-xs lb-text-muted">
+                    Enregistrez le mot de passe pour activer la supervision directe du répéteur (modèle, firmware, mémoire, Wifi, redémarrage…).
+                  </p>
                 )}
               </div>
-
-              <RepeaterForm repeater={repeater} onSaved={refresh} />
-
-              {repeater.has_password ? (
-                <RepeaterInfoPanel repeaterKey={repeater.key} repeaterName={repeater.name} />
-              ) : (
-                <p className="mt-3 text-xs lb-text-muted">
-                  Enregistrez le mot de passe pour activer la supervision directe du répéteur.
-                </p>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>

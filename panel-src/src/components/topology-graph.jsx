@@ -10,90 +10,14 @@ import {
   useEdgesState,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import {
-  CircleHelp, Monitor, Laptop, Smartphone, Tablet, Tv, HardDrive, Printer,
-  Gamepad2, Wifi, Network, Router, Radio, Plug, Camera, Server, House, Globe,
-  Box as BoxIcon, RotateCcw,
-} from "lucide-react";
+import { Globe, House, Network, RotateCcw } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsCommand } from "../lib/hass-context.jsx";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { useConfirm } from "../lib/confirm-context.jsx";
-
-// ── Icônes d'appareils (reprend la table de l'ancien panel React) ───────────
-
-const DEVICE_ICON_OPTIONS_MAP = {
-  generic: { key: "generic", label: "Générique", Icon: CircleHelp },
-  monitor: { key: "monitor", label: "Ordinateur", Icon: Monitor },
-  laptop: { key: "laptop", label: "Portable", Icon: Laptop },
-  smartphone: { key: "smartphone", label: "Téléphone", Icon: Smartphone },
-  tablet: { key: "tablet", label: "Tablette", Icon: Tablet },
-  tv: { key: "tv", label: "TV / Décodeur", Icon: Tv },
-  storage: { key: "storage", label: "Stockage / NAS", Icon: HardDrive },
-  printer: { key: "printer", label: "Imprimante", Icon: Printer },
-  gamepad: { key: "gamepad", label: "Console", Icon: Gamepad2 },
-  accessPoint: { key: "accessPoint", label: "Borne WiFi", Icon: Wifi },
-  switch: { key: "switch", label: "Switch réseau", Icon: Network },
-  router: { key: "router", label: "Routeur", Icon: Router },
-  repeater: { key: "repeater", label: "Répéteur", Icon: Radio },
-  plug: { key: "plug", label: "Prise / CPL", Icon: Plug },
-  camera: { key: "camera", label: "Caméra", Icon: Camera },
-  server: { key: "server", label: "Serveur", Icon: Server },
-  home: { key: "home", label: "Maison / Smart", Icon: House },
-  globe: { key: "globe", label: "Internet", Icon: Globe },
-  box: { key: "box", label: "Box / Décodeur", Icon: BoxIcon },
-};
-
-const DEVICE_TYPE_TO_ICON_KEY = {
-  Computer: "monitor",
-  "Desktop iOS": "monitor",
-  "Desktop Windows": "monitor",
-  "Desktop Linux": "monitor",
-  Laptop: "laptop",
-  "Laptop iOS": "laptop",
-  "Laptop Windows": "laptop",
-  "Laptop Linux": "laptop",
-  "Mobile iOS": "smartphone",
-  Mobile: "smartphone",
-  "Mobile Android": "smartphone",
-  "Tablet iOS": "tablet",
-  Tablet: "tablet",
-  "Tablet Android": "tablet",
-  "Tablet Windows": "tablet",
-  TV: "tv",
-  TVKey: "tv",
-  "Apple TV": "tv",
-  NAS: "storage",
-  Nas: "storage",
-  Printer: "printer",
-  "Game Console": "gamepad",
-  Switch: "switch",
-  Switch4: "switch",
-  Switch8: "switch",
-  "Access Point": "accessPoint",
-  HomePlug: "plug",
-  "Set-top Box TV UHD": "tv",
-  "Set-top Box": "box",
-  Server: "server",
-  Router: "router",
-  Repeater: "repeater",
-};
-
-function isSwitchDevice(type) {
-  return !!type && /^Switch(\d+)?$/i.test(type);
-}
-
-function deviceIconKey(type) {
-  if (!type) return "generic";
-  if (Object.hasOwn(DEVICE_ICON_OPTIONS_MAP, type)) return type;
-  return DEVICE_TYPE_TO_ICON_KEY[type] ?? "generic";
-}
-
-function renderDeviceIcon(source, className = "h-4 w-4") {
-  const key = source && Object.hasOwn(DEVICE_ICON_OPTIONS_MAP, source) ? source : DEVICE_TYPE_TO_ICON_KEY[source];
-  const { Icon } = DEVICE_ICON_OPTIONS_MAP[key ?? "generic"];
-  return <Icon className={className} />;
-}
+import {
+  DEVICE_ICON_OPTIONS, deviceIconKey, isSwitchDevice, renderDeviceIcon,
+} from "../lib/device-types.jsx";
 
 // ── Libellés d'interfaces ────────────────────────────────────────────────────
 
@@ -444,8 +368,9 @@ function createSwitchId() {
 
 // ── Panneau d'édition du parent d'un appareil ────────────────────────────────
 
-function ParentEditPanel({ edit, devices, parentOverrides, onSave, onClose }) {
+function ParentEditPanel({ edit, devices, parentOverrides, typeOverrides, onSave, onSaveType, onClose }) {
   const [selected, setSelected] = useState(edit.currentOverride);
+  const [selectedType, setSelectedType] = useState(typeOverrides[edit.mac] ?? "");
   const autoLabel = useMemo(() => {
     const eff = parentOverrides[edit.mac];
     if (eff) {
@@ -471,8 +396,25 @@ function ParentEditPanel({ edit, devices, parentOverrides, onSave, onClose }) {
       {selected !== "" && (
         <p className="mt-2 text-xs text-blue-600">L'appareil sélectionné sera affiché comme relais (bordure pointillée bleue).</p>
       )}
+
+      <label className="mt-3 flex flex-col gap-1 text-xs lb-text-muted">
+        Type d'appareil {typeOverrides[edit.mac] && <span className="text-blue-600">(forcé manuellement)</span>}
+        <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} className="lb-input">
+          <option value="">Automatique (détection Livebox)</option>
+          {DEVICE_ICON_OPTIONS.map((opt) => (
+            <option key={opt.key} value={opt.key}>{opt.label}</option>
+          ))}
+        </select>
+      </label>
+      <p className="mt-1 text-xs lb-text-muted">
+        À utiliser quand la Livebox détecte mal un appareil (mauvaise icône/catégorie) — n'affecte que l'affichage dans Oralink.
+      </p>
+
       <div className="mt-3 flex gap-2">
-        <button onClick={() => { onSave(edit.mac, selected); onClose(); }} className="lb-btn-primary px-2.5 py-1 text-xs">
+        <button
+          onClick={() => { onSave(edit.mac, selected); onSaveType(edit.mac, selectedType); onClose(); }}
+          className="lb-btn-primary px-2.5 py-1 text-xs"
+        >
           Appliquer
         </button>
         <button onClick={onClose} className="lb-btn-outline px-2.5 py-1 text-xs">Annuler</button>
@@ -596,6 +538,7 @@ export function TopologyGraph({ devices, topology }) {
   const { data: positions, refresh: refreshPositions } = useWsData("livebox/topology/positions");
   const { data: customSwitches, refresh: refreshSwitches } = useWsData("livebox/topology/switches");
   const { data: parentOverrides, refresh: refreshParents } = useWsData("livebox/topology/parents");
+  const { data: typeOverrides, refresh: refreshTypes } = useWsData("livebox/topology/types");
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -603,7 +546,7 @@ export function TopologyGraph({ devices, topology }) {
   const [switchEditorOpen, setSwitchEditorOpen] = useState(false);
   const [switchDraft, setSwitchDraft] = useState({ id: "", name: "", parent: "", devices: [] });
 
-  const ready = positions != null && customSwitches != null && parentOverrides != null;
+  const ready = positions != null && customSwitches != null && parentOverrides != null && typeOverrides != null;
 
   const graph = useMemo(() => (
     ready ? buildGraph(devices, topology, positions, parentOverrides, customSwitches) : null
@@ -649,6 +592,12 @@ export function TopologyGraph({ devices, topology }) {
     await runAction({ type: "livebox/topology/parent/set", mac, parent: parent || null },
       { success: parent ? "Rattachement forcé enregistré." : "Rattachement automatique restauré." });
     refreshParents();
+  };
+
+  const handleSaveType = async (mac, deviceType) => {
+    await runAction({ type: "livebox/topology/type/set", mac, device_type: deviceType || null },
+      { success: deviceType ? "Type d'appareil forcé enregistré." : "Détection automatique du type restaurée." });
+    refreshTypes();
   };
 
   const handleSaveSwitch = async () => {
@@ -731,7 +680,9 @@ export function TopologyGraph({ devices, topology }) {
             edit={editState}
             devices={devices}
             parentOverrides={parentOverrides ?? {}}
+            typeOverrides={typeOverrides ?? {}}
             onSave={handleSaveParent}
+            onSaveType={handleSaveType}
             onClose={() => setEditState(null)}
           />
         </div>
