@@ -26,19 +26,19 @@ export function Card({ title, actions, children, id, fill }) {
 /**
  * Ligne label/valeur générique (fiches "Box", "WAN", détails d'un appareil…).
  *
- * min-w-0 + break-words sur la valeur : un flex item a par défaut
- * `min-width: auto`, c'est-à-dire qu'il refuse de rétrécir sous la largeur de
- * son contenu — une longue valeur sans espaces (numéro de série, adresse MAC,
- * version de firmware…) poussait donc la ligne, puis toute la carte, hors de
- * l'écran sur mobile au lieu de passer à la ligne, forçant un défilement
- * horizontal. `flex-shrink-0` sur le label évite le même souci dans l'autre
- * sens (un long libellé ne doit jamais être celui qui rétrécit).
+ * Empilée (libellé au-dessus, valeur en dessous) en dessous de `sm`, côte à
+ * côte au-delà. Un libellé qui ne rétrécit jamais (nécessaire pour rester
+ * lisible) ne laisse, une fois côte à côte sur un écran de téléphone étroit,
+ * qu'une colonne resserrée à la valeur — une longue valeur sans espaces
+ * (numéro de série, MAC, version de firmware…) s'y retrouve alors compressée
+ * sur plusieurs lignes très étroites même sans déborder à proprement parler.
+ * Empiler les deux sur mobile donne à la valeur toute la largeur de la ligne.
  */
 export function Row({ label, value }) {
   return (
-    <div className="flex justify-between gap-3 border-b lb-border py-1 text-sm last:border-0">
-      <span className="lb-text-muted flex-shrink-0">{label}</span>
-      <span className="min-w-0 break-words text-right font-medium lb-text">{value ?? "—"}</span>
+    <div className="flex flex-col gap-0.5 border-b lb-border py-1.5 text-sm last:border-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3 sm:py-1">
+      <span className="lb-text-muted sm:flex-shrink-0">{label}</span>
+      <span className="break-words font-medium lb-text sm:min-w-0 sm:text-right">{value ?? "—"}</span>
     </div>
   );
 }
