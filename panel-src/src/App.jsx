@@ -73,7 +73,7 @@ const TAB_RENDER = {
 
 function Sidebar({ active, onSelect, onClose, showCloseBtn }) {
   return (
-    <aside className="flex h-full w-56 flex-col overflow-y-auto border-r lb-border bg-[var(--card-background-color,#fff)]">
+    <aside className="flex h-full min-h-0 w-56 flex-col overflow-y-auto border-r lb-border bg-[var(--card-background-color,#fff)]">
       {/* Brand */}
       <div className="flex items-center justify-between gap-2 border-b lb-border px-4 py-3.5 flex-shrink-0">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -97,7 +97,7 @@ function Sidebar({ active, onSelect, onClose, showCloseBtn }) {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-3 space-y-4">
+      <nav className="flex-1 min-h-0 overflow-y-auto py-3 space-y-4">
         {NAV_GROUPS.map((group, gi) => (
           <div key={gi}>
             {group.label && (
@@ -151,7 +151,7 @@ export default function App() {
   const activeLabel = ALL_ITEMS.find((i) => i.id === activeTab)?.label ?? "Oralink";
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -175,7 +175,7 @@ export default function App() {
       </div>
 
       {/* Main area */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Mobile top bar — z-50 + opaque background so it always stays above the
             drawer overlay (z-40) and its backdrop (z-30): otherwise, while
             Oralink's own nav drawer is open, this bar (and the HA menu button
@@ -220,9 +220,17 @@ export default function App() {
           <span className="text-base font-semibold lb-text truncate">{activeLabel}</span>
         </header>
 
-        {/* Tab content — overflow-hidden so tabs control their own scroll */}
-        <main className="flex-1 overflow-hidden p-4 md:p-6 flex flex-col">
-          <div className="flex-1 overflow-y-auto lb-scroll">
+        {/* Tab content — overflow-hidden so tabs control their own scroll.
+            min-h-0 on every flex link in this chain is required: a flex
+            item's default min-height is "auto" (its content's natural size),
+            not 0 — without overriding that, a tall tab (e.g. Répéteurs with
+            many devices) refuses to shrink to the space actually allotted to
+            it and grows the whole page instead of scrolling internally here,
+            which pushes the mobile header (a normal, non-fixed element) out
+            of view on scroll while the fixed nav drawer stays pinned to the
+            viewport — looking like the drawer took over the screen. */}
+        <main className="flex-1 min-h-0 overflow-hidden p-4 md:p-6 flex flex-col">
+          <div className="flex-1 min-h-0 overflow-y-auto lb-scroll">
             {TAB_RENDER[activeTab]?.()}
           </div>
         </main>
