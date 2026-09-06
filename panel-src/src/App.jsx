@@ -160,11 +160,17 @@ export default function App() {
         />
       )}
 
-      {/* Sidebar — fixed overlay on mobile, static on desktop */}
+      {/* Sidebar — fixed overlay on mobile, static on desktop.
+          lb-drawer-open/closed (index.css) instead of Tailwind's own
+          translate-x utilities: those live in a cascade layer, and layer
+          priority is whole-document and crosses shadow-DOM boundaries — on
+          the real HA page something in its own stylesheets was silently
+          outranking ours, so the class correctly toggled but the drawer
+          never actually moved. Plain unlayered rules always win instead. */}
       <div className={`
         fixed inset-y-0 left-0 z-40 md:static md:z-auto md:flex md:flex-shrink-0
         transition-transform duration-200 ease-in-out
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
+        ${sidebarOpen ? "lb-drawer-open" : "lb-drawer-closed"}
       `}>
         <Sidebar
           active={activeTab}

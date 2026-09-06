@@ -154,3 +154,26 @@
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--lb-brand) 20%, transparent);
   }
 }
+
+/* Mobile nav drawer slide — deliberately OUTSIDE any @layer block (unlike
+   everything above). Tailwind's own -translate-x-full/translate-x-0
+   utilities live inside `@layer utilities`, and cascade-layer priority is a
+   whole-document concept that crosses shadow-DOM boundaries even though
+   selector matching stays isolated: if Home Assistant's own stylesheets
+   declare any cascade layers elsewhere in the page, their relative order can
+   silently outrank ours, and the drawer's class correctly toggles (confirmed
+   in HA's own DevTools) while the resulting transform never visually applies.
+   An unlayered rule always wins over a layered one regardless of ordering,
+   per the CSS Cascade Layers spec, so this sidesteps that entirely. */
+.lb-drawer-closed {
+  transform: translateX(-100%);
+}
+.lb-drawer-open {
+  transform: translateX(0);
+}
+@media (min-width: 768px) {
+  .lb-drawer-closed,
+  .lb-drawer-open {
+    transform: none;
+  }
+}
