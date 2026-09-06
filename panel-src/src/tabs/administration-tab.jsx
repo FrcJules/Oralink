@@ -10,16 +10,7 @@ import { Clock, HardDrive, Zap, Shield, RefreshCw, Router } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { useConfirm } from "../lib/confirm-context.jsx";
-import { Card, StateBox } from "../components/card.jsx";
-
-function Row({ label, value }) {
-  return (
-    <div className="flex justify-between border-b lb-border py-1 text-sm last:border-0">
-      <span className="lb-text-muted">{label}</span>
-      <span className="font-medium lb-text">{value ?? "—"}</span>
-    </div>
-  );
-}
+import { Card, StateBox, Row } from "../components/card.jsx";
 
 // ── Section selector ──────────────────────────────────────────────────────────
 

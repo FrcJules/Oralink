@@ -23,6 +23,26 @@ export function Card({ title, actions, children, id, fill }) {
   );
 }
 
+/**
+ * Ligne label/valeur générique (fiches "Box", "WAN", détails d'un appareil…).
+ *
+ * min-w-0 + break-words sur la valeur : un flex item a par défaut
+ * `min-width: auto`, c'est-à-dire qu'il refuse de rétrécir sous la largeur de
+ * son contenu — une longue valeur sans espaces (numéro de série, adresse MAC,
+ * version de firmware…) poussait donc la ligne, puis toute la carte, hors de
+ * l'écran sur mobile au lieu de passer à la ligne, forçant un défilement
+ * horizontal. `flex-shrink-0` sur le label évite le même souci dans l'autre
+ * sens (un long libellé ne doit jamais être celui qui rétrécit).
+ */
+export function Row({ label, value }) {
+  return (
+    <div className="flex justify-between gap-3 border-b lb-border py-1 text-sm last:border-0">
+      <span className="lb-text-muted flex-shrink-0">{label}</span>
+      <span className="min-w-0 break-words text-right font-medium lb-text">{value ?? "—"}</span>
+    </div>
+  );
+}
+
 /** Affiche un message de chargement / erreur, ou rien si tout va bien. */
 export function StateBox({ loading, error }) {
   if (loading) return <p className="lb-text-muted text-sm">Chargement…</p>;

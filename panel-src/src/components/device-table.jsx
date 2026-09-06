@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronUp, ChevronDown, ChevronsUpDown, Zap, X, Lock, Unlock, Pencil, Check } from "lucide-react";
 import { useWsAction } from "../lib/use-ws-action.js";
+import { Row } from "./card.jsx";
 import { DEVICE_ICON_OPTIONS, deviceTypeLabel } from "../lib/device-types.jsx";
 
 /**
@@ -69,14 +70,6 @@ function WolButton({ mac }) {
   );
 }
 
-function Row({ label, value }) {
-  return (
-    <div className="flex justify-between border-b lb-border py-1 text-sm last:border-0">
-      <span className="lb-text-muted">{label}</span>
-      <span className="font-medium lb-text">{value ?? "—"}</span>
-    </div>
-  );
-}
 
 function DeviceDetailDrawer({ device, onClose, onRenamed }) {
   const runAction = useWsAction();

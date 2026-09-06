@@ -9,17 +9,6 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-function Row({ label, value }) {
-  return (
-    <div className="flex justify-between border-b lb-border py-1 text-sm last:border-0">
-      <span className="lb-text-muted">{label}</span>
-      <span className="font-medium lb-text">{value ?? "—"}</span>
-    </div>
-  );
-}
-
 function fmtBytes(b) {
   if (b == null || b === 0) return "0 o";
   const units = ["o", "Ko", "Mo", "Go", "To"];
