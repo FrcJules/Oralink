@@ -196,17 +196,26 @@ export default function App() {
           >
             <Menu className="size-5" />
           </button>
-          {/* Panel nav toggle */}
+          {/* Panel nav toggle — a real open/close toggle, not open-only: the
+              drawer's own close button sits at its own top, which this header
+              (z-50, on top of the drawer at z-40) visually covers whenever the
+              drawer is open. Without this being a toggle, there was no way
+              left to close the drawer once opened, other than tapping the
+              dimmed backdrop below the header strip. */}
           <button
-            onClick={() => setSidebarOpen(true)}
+            onClick={() => setSidebarOpen((v) => !v)}
             className="rounded-md p-1.5 lb-text-muted hover:bg-[var(--secondary-background-color)]"
-            aria-label="Navigation panel"
+            aria-label={sidebarOpen ? "Fermer la navigation" : "Ouvrir la navigation"}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
-              <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
-            </svg>
+            {sidebarOpen ? (
+              <X className="size-5" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
+              </svg>
+            )}
           </button>
           <span className="text-base font-semibold lb-text truncate">{activeLabel}</span>
         </header>
