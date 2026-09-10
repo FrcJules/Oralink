@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlparse
 
 import voluptuous as vol
 from aiosysbus import AIOSysbus
@@ -21,7 +22,12 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNA
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
-from homeassistant.helpers.service_info.ssdp import ATTR_UPNP_SERIAL, SsdpServiceInfo
+from homeassistant.helpers.service_info.ssdp import (
+    ATTR_UPNP_FRIENDLY_NAME,
+    ATTR_UPNP_MODEL_NAME,
+    ATTR_UPNP_SERIAL,
+    SsdpServiceInfo,
+)
 
 from .const import (
     CONF_DISPLAY_DEVICES,
@@ -58,6 +64,10 @@ class LiveboxFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a Livebox config flow."""
 
     VERSION = 1
+
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self._discovered_host: str | None = None
 
     @staticmethod
     @callback
@@ -120,17 +130,47 @@ class LiveboxFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
                 errors["base"] = "cannot_connect"
 
+        data_schema = self.add_suggested_values_to_schema(
+            DATA_SCHEMA,
+            {CONF_HOST: self._discovered_host} if self._discovered_host else None,
+        )
         return self.async_show_form(
-            step_id="user", data_schema=DATA_SCHEMA, errors=errors
+            step_id="user", data_schema=data_schema, errors=errors
         )
 
     async def async_step_ssdp(
         self, discovery_info: SsdpServiceInfo
     ) -> ConfigFlowResult:
         """Handle a discovered device."""
+        host = (
+            urlparse(discovery_info.ssdp_location).hostname
+            if discovery_info.ssdp_location
+            else None
+        )
+
+        # Livebox repeaters/Wifi Beacons can answer SSDP with the same generic
+        # friendlyName ("Orange Livebox") as the main box, each with its own
+        # serial. Dedupe on the discovered host too, not just the serial, so
+        # a box that's already configured doesn't keep resurfacing as a new
+        # discovery card just because a companion device echoes its name.
+        if host and any(
+            entry.data.get(CONF_HOST) == host
+            for entry in self._async_current_entries()
+        ):
+            return self.async_abort(reason="already_configured")
+
         unique_id = discovery_info.upnp[ATTR_UPNP_SERIAL]
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
+
+        self._discovered_host = host
+        name = discovery_info.upnp.get(
+            ATTR_UPNP_MODEL_NAME
+        ) or discovery_info.upnp.get(ATTR_UPNP_FRIENDLY_NAME, DOMAIN.capitalize())
+        self.context["title_placeholders"] = {
+            "name": f"{name} ({host})" if host else name
+        }
+
         return await self.async_step_user()
 
 
