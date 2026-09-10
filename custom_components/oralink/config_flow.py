@@ -142,6 +142,11 @@ class LiveboxFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self, discovery_info: SsdpServiceInfo
     ) -> ConfigFlowResult:
         """Handle a discovered device."""
+        _LOGGER.debug(
+            "SSDP discovery: location=%s upnp=%s",
+            discovery_info.ssdp_location,
+            discovery_info.upnp,
+        )
         host = (
             urlparse(discovery_info.ssdp_location).hostname
             if discovery_info.ssdp_location
