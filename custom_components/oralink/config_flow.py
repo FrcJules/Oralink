@@ -22,12 +22,7 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNA
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
-from homeassistant.helpers.service_info.ssdp import (
-    ATTR_UPNP_FRIENDLY_NAME,
-    ATTR_UPNP_MODEL_NAME,
-    ATTR_UPNP_SERIAL,
-    SsdpServiceInfo,
-)
+from homeassistant.helpers.service_info.ssdp import ATTR_UPNP_SERIAL, SsdpServiceInfo
 
 from .const import (
     CONF_DISPLAY_DEVICES,
@@ -169,13 +164,6 @@ class LiveboxFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         self._discovered_host = host
-        name = discovery_info.upnp.get(
-            ATTR_UPNP_MODEL_NAME
-        ) or discovery_info.upnp.get(ATTR_UPNP_FRIENDLY_NAME, DOMAIN.capitalize())
-        self.context["title_placeholders"] = {
-            "name": f"{name} ({host})" if host else name
-        }
-
         return await self.async_step_user()
 
 
