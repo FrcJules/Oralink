@@ -108,9 +108,14 @@ class LiveboxFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             except (RetrieveFailed, HttpRequestFailed) as err:
                 _LOGGER.warning("Fail to connect to the Livebox: %s", err)
                 errors["base"] = "cannot_connect"
-            except AiosysbusException:
-                _LOGGER.exception("Unknown error connecting to the Livebox")
-                errors["base"] = "unknown"
+            except AiosysbusException as err:
+                # aiosysbus's AIOSysbus.async_connect() re-raises every
+                # non-AuthenticationFailed error (timeouts, network errors,
+                # unexpected responses, ...) as a bare AiosysbusException,
+                # discarding the original subtype — so this is normally a
+                # connection problem, not a genuine unknown/unexpected bug.
+                _LOGGER.warning("Fail to connect to the Livebox: %s", err)
+                errors["base"] = "cannot_connect"
             else:
                 if (sn := infos.get("status", {}).get("SerialNumber")) is not None:
                     await self.async_set_unique_id(sn)
