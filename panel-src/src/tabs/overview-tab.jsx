@@ -1,6 +1,4 @@
-import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
-import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox, Row } from "../components/card.jsx";
 
 function ServiceBadge({ label, active }) {
@@ -42,10 +40,20 @@ function IptvCard() {
           <Row key={k} label={k} value={String(v)} />
         ))
       )}
+      {typeof iptv_status === "string" && (
+        <Row label="Statut" value={iptv_status === "Available" ? "Disponible" : iptv_status} />
+      )}
       {data?.multi_screens != null && (
         <Row label="Multi-écrans" value={data.multi_screens ? "Activé" : "Désactivé"} />
       )}
       {config.MulticastIPAddress && <Row label="IP multicast" value={config.MulticastIPAddress} />}
+      {Array.isArray(config.channels) && config.channels.map((c, i) => (
+        <Row
+          key={`${c.ChannelType}-${c.ChannelNumber}-${i}`}
+          label={`Canal ${c.ChannelType ?? ""} ${c.ChannelNumber ?? ""}`.trim()}
+          value={`${c.ChannelFlags || "—"}${c.ChannelStatus === false ? " (inactif)" : ""}`}
+        />
+      ))}
     </Card>
   );
 }

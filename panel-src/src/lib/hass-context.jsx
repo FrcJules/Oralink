@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useRef } from "react";
 
 const HassContext = createContext(null);
 
@@ -24,7 +24,9 @@ export function useWsCommand() {
   // On lit donc `hass` via une ref pour garder une identité de fonction
   // stable, tout en appelant toujours la connexion la plus récente.
   const hassRef = useRef(hass);
-  hassRef.current = hass;
+  useLayoutEffect(() => {
+    hassRef.current = hass;
+  }, [hass]);
 
   return useCallback((message) => {
     const current = hassRef.current;

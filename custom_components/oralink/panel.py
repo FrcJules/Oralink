@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import logging
 import time
+from datetime import timedelta
 from uuid import uuid4
 
 import aiohttp
@@ -11,10 +14,15 @@ import voluptuous as vol
 from aiosysbus import AIOSysbus
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
 from . import tv_decoder_api
 from .const import DOMAIN
+from .history_utils import downsample, merge_rate_series, parse_float
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def async_setup_panel(hass: HomeAssistant) -> None:
@@ -23,6 +31,9 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_dhcp)
     websocket_api.async_register_command(hass, ws_get_nat)
     websocket_api.async_register_command(hass, ws_get_ptf)
+    websocket_api.async_register_command(hass, ws_get_pinholes)
+    websocket_api.async_register_command(hass, ws_add_pinhole)
+    websocket_api.async_register_command(hass, ws_delete_pinhole)
     websocket_api.async_register_command(hass, ws_ptf_add)
     websocket_api.async_register_command(hass, ws_ptf_delete)
     websocket_api.async_register_command(hass, ws_get_network)
@@ -35,6 +46,8 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_remove_topology_switch)
     websocket_api.async_register_command(hass, ws_get_topology_parents)
     websocket_api.async_register_command(hass, ws_set_topology_parent)
+    websocket_api.async_register_command(hass, ws_get_topology_types)
+    websocket_api.async_register_command(hass, ws_set_topology_type)
     websocket_api.async_register_command(hass, ws_get_advanced)
     websocket_api.async_register_command(hass, ws_refresh)
     # NAT mutations
@@ -49,10 +62,13 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_upnp_rules)
     # Advanced mutations
     websocket_api.async_register_command(hass, ws_dmz_set)
+    websocket_api.async_register_command(hass, ws_get_dmz)
+    websocket_api.async_register_command(hass, ws_dmz_delete)
     websocket_api.async_register_command(hass, ws_upnp_delete)
     websocket_api.async_register_command(hass, ws_upnp_toggle)
     websocket_api.async_register_command(hass, ws_dns_set)
     websocket_api.async_register_command(hass, ws_ddns_add)
+    websocket_api.async_register_command(hass, ws_get_ddns_services)
     websocket_api.async_register_command(hass, ws_ddns_delete)
     websocket_api.async_register_command(hass, ws_ipv6_toggle)
     websocket_api.async_register_command(hass, ws_ntp_set)
@@ -173,7 +189,10 @@ def ws_get_devices(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
 
-    devices = coordinator.data.get("devices", {})
+    # Tous les appareils vus par la box (Wi-Fi + Ethernet), indépendamment des
+    # options de suivi qui ne concernent que les entités device_tracker : sans
+    # ça, l'onglet Appareils masquait tous les appareils filaires.
+    devices = coordinator.data.get("all_devices") or coordinator.data.get("devices", {})
     traffic = coordinator.data.get("device_traffic", {})
     type_overrides = coordinator.topology_store.type_overrides
 
@@ -184,6 +203,7 @@ def ws_get_devices(hass, connection, msg):
             "mac": mac,
             "name": d.get("Name", mac),
             "ip": d.get("IPAddress", ""),
+            "ipv6": _global_ipv6(d),
             "active": d.get("Active", False),
             # Un type forcé manuellement (détection Livebox erronée) prime sur
             # le DeviceType brut — cf. livebox/topology/type/set.
@@ -201,6 +221,15 @@ def ws_get_devices(hass, connection, msg):
 
     result.sort(key=lambda d: (not d["active"], d["name"].lower()))
     connection.send_result(msg["id"], result)
+
+
+def _global_ipv6(device: dict) -> str:
+    """Première adresse IPv6 globale joignable d'un appareil (pour les pinholes)."""
+    for addr in device.get("IPv6Address") or []:
+        if isinstance(addr, dict) and addr.get("Scope") == "global" and addr.get("Address"):
+            if addr.get("Status") in (None, "", "reachable"):
+                return addr["Address"]
+    return ""
 
 
 def _normalize_lease(lease: dict) -> dict:
@@ -227,12 +256,12 @@ def ws_get_dhcp(hass, connection, msg):
     static_leases_raw = data.get("dhcp_static_leases", [])
     static_macs: set[str] = {(l.get("Mac Address") or "").upper() for l in static_leases_raw}
 
-    # Build name map from coordinator devices (key is MAC, possibly lowercase).
-    # coordinator.data["devices"] only contains WiFi devices, but it has the best
-    # friendly names (set via Devices.Device.{mac}:setName).
+    # Noms des appareils (Devices.Device.{mac}:setName) — vue complète Wi-Fi +
+    # filaires : avec les seuls appareils suivis (Wi-Fi), les baux des serveurs
+    # et équipements filaires restaient sans nom.
     mac_to_name: dict[str, str] = {
         mac.lower(): d.get("Name", "")
-        for mac, d in data.get("devices", {}).items()
+        for mac, d in (data.get("all_devices") or data.get("devices", {})).items()
         if d.get("Name")
     }
 
@@ -291,6 +320,108 @@ def ws_get_nat(hass, connection, msg):
     connection.send_result(msg["id"], webui if webui else all_rules)
 
 
+# ── Pare-feu IPv6 : ouvertures de ports (Firewall:get/set/deletePinhole) ──────
+# En IPv6 il n'y a pas de NAT : chaque appareil a une adresse publique, mais le
+# pare-feu de la box bloque l'entrant. Un « pinhole » ouvre un port vers une
+# adresse IPv6 précise (cf. save_ipv6_pat_rule de LiveboxMonitor).
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/ipv6/pinholes"})
+@websocket_api.async_response
+async def ws_get_pinholes(hass, connection, msg):
+    """Liste les ouvertures de ports IPv6 (manuelles et UPnP)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    raw = await _safe_post(coordinator, "Firewall", "getPinhole", {})
+    rules = []
+    if isinstance(raw, dict):
+        for rule_id, r in raw.items():
+            if not isinstance(r, dict) or not r.get("DestinationPort"):
+                continue  # sans port = redirection de protocole, pas un pinhole de port
+            rules.append({
+                "rule_id": r.get("Id") or rule_id,
+                "origin": r.get("Origin", ""),
+                "name": r.get("Description") or r.get("Id") or rule_id,
+                "enable": bool(r.get("Enable", True)),
+                "protocol": r.get("Protocol", ""),
+                "port": r.get("DestinationPort", ""),
+                "destination_ip": r.get("DestinationIPAddress", ""),
+                "source_prefix": r.get("SourcePrefix", ""),
+            })
+    connection.send_result(msg["id"], {"supported": raw is not None, "rules": rules})
+
+
+def _ipv6_address(value: str) -> str:
+    address = ipaddress.ip_address(value.strip())
+    if address.version != 6:
+        raise vol.Invalid("adresse IPv6 attendue")
+    return str(address)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/ipv6/pinhole/add",
+    vol.Required("name"): vol.All(str, vol.Match(r"^[A-Za-z0-9_-]{1,32}$")),
+    vol.Required("protocol"): str,
+    vol.Required("port"): vol.All(str, vol.Match(r"^\d{1,5}(-\d{1,5})?$")),
+    vol.Required("destination_ip"): str,
+    vol.Optional("source_prefix", default=""): str,
+})
+@websocket_api.async_response
+async def ws_add_pinhole(hass, connection, msg):
+    """Ouvre un port IPv6 vers un appareil (Firewall:setPinhole)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        destination = _ipv6_address(msg["destination_ip"])
+        await coordinator.api.firewall._auth.post("Firewall", "setPinhole", {
+            "id": msg["name"],
+            "origin": "webui",
+            "sourceInterface": "data",
+            "sourcePort": "",
+            "destinationPort": msg["port"],
+            "destinationIPAddress": destination,
+            "sourcePrefix": msg["source_prefix"],
+            "protocol": _protocol_numbers(msg["protocol"]),
+            "ipversion": 6,
+            "enable": True,
+            "persistent": True,
+            "description": msg["name"],
+            "destinationMACAddress": "",
+        })
+        await coordinator.api.firewall.async_commit()
+        connection.send_result(msg["id"], {"status": "added"})
+    except Exception as err:
+        connection.send_error(msg["id"], "pinhole_add_failed", str(err))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/ipv6/pinhole/delete",
+    vol.Required("rule_id"): str,
+    vol.Optional("origin", default="webui"): vol.In(["webui", "upnp"]),
+})
+@websocket_api.async_response
+async def ws_delete_pinhole(hass, connection, msg):
+    """Supprime une ouverture de port IPv6 (Firewall:deletePinhole)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.firewall._auth.post(
+            "Firewall", "deletePinhole", {"id": msg["rule_id"], "origin": msg["origin"]}
+        )
+        await coordinator.api.firewall.async_commit()
+        connection.send_result(msg["id"], {"status": "deleted"})
+    except Exception as err:
+        connection.send_error(msg["id"], "pinhole_delete_failed", str(err))
+
+
 @callback
 @websocket_api.websocket_command({vol.Required("type"): "livebox/ptf"})
 def ws_get_ptf(hass, connection, msg):
@@ -302,42 +433,47 @@ def ws_get_ptf(hass, connection, msg):
     connection.send_result(msg["id"], coordinator.data.get("ptf", []))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/ptf/add",
-    vol.Required("name"): str,
+    vol.Required("name"): vol.All(str, vol.Length(min=1, max=64)),
     vol.Required("protocol"): str,
-    vol.Required("external_port_start"): str,
-    vol.Required("external_port_end"): str,
-    vol.Required("internal_port_start"): str,
-    vol.Required("internal_port_end"): str,
+    vol.Required("destination_ip"): str,
+    vol.Optional("source_prefix", default=""): str,
 })
 @websocket_api.async_response
 async def ws_ptf_add(hass, connection, msg):
-    """Ajoute une règle de redirection de protocole (Firewall:setProtocolForwarding)."""
+    """Ajoute une redirection de protocole (Firewall:setProtocolForwarding).
+
+    Redirige un protocole IP entier (GRE 47, ESP 50, AH 51… — pas de ports)
+    vers une machine du LAN, comme l'onglet « Protocol Forwarding » de
+    LiveboxMonitor (`save_ipv4_ptf_rule`).
+    """
     coordinator = _get_coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator.api.firewall._auth.post("Firewall", "setProtocolForwarding", {
-            "id": f"webui_{msg['name']}",
+        rule = {
+            "id": msg["name"],
             "description": msg["name"],
-            "protocol": msg["protocol"],
-            "sourceInterface": "data",
-            "externalPortStart": msg["external_port_start"],
-            "externalPortEnd": msg["external_port_end"],
-            "internalPortStart": msg["internal_port_start"],
-            "internalPortEnd": msg["internal_port_end"],
+            "protocol": _protocol_numbers(msg["protocol"]),
+            "destinationIPAddress": msg["destination_ip"],
             "enable": True,
             "persistent": True,
-        })
+        }
+        if msg["source_prefix"]:
+            rule["sourcePrefix"] = msg["source_prefix"]
+        await coordinator.api.firewall._auth.post("Firewall", "setProtocolForwarding", rule)
         await coordinator.api.firewall.async_commit()
+        await _refresh_cached(coordinator, "ptf", coordinator.async_get_protocol_forwarding)
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "added"})
     except Exception as err:
         connection.send_error(msg["id"], "ptf_add_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/ptf/delete",
     vol.Required("rule_id"): str,
@@ -352,6 +488,7 @@ async def ws_ptf_delete(hass, connection, msg):
     try:
         await coordinator.api.firewall._auth.post("Firewall", "deleteProtocolForwarding", {"id": msg["rule_id"]})
         await coordinator.api.firewall.async_commit()
+        await _refresh_cached(coordinator, "ptf", coordinator.async_get_protocol_forwarding)
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "deleted"})
     except Exception as err:
@@ -548,6 +685,7 @@ def ws_get_topology_positions(hass, connection, msg):
     connection.send_result(msg["id"], coordinator.topology_store.positions)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/topology/positions/set",
     vol.Required("node_id"): str,
@@ -564,6 +702,7 @@ async def ws_set_topology_position(hass, connection, msg):
     connection.send_result(msg["id"])
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/topology/positions/reset"})
 @websocket_api.async_response
 async def ws_reset_topology_positions(hass, connection, msg):
@@ -585,6 +724,7 @@ def ws_get_topology_switches(hass, connection, msg):
     connection.send_result(msg["id"], coordinator.topology_store.switches)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/topology/switches/set",
     vol.Optional("switch_id"): str,
@@ -605,6 +745,7 @@ async def ws_set_topology_switch(hass, connection, msg):
     connection.send_result(msg["id"], {"switch_id": switch_id})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/topology/switches/remove",
     vol.Required("switch_id"): str,
@@ -629,6 +770,7 @@ def ws_get_topology_parents(hass, connection, msg):
     connection.send_result(msg["id"], coordinator.topology_store.parent_overrides)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/topology/parent/set",
     vol.Required("mac"): str,
@@ -654,6 +796,7 @@ def ws_get_topology_types(hass, connection, msg):
     connection.send_result(msg["id"], coordinator.topology_store.type_overrides)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/topology/type/set",
     vol.Required("mac"): str,
@@ -688,6 +831,7 @@ def ws_refresh(hass, connection, msg):
 
 # ── NAT mutations ─────────────────────────────────────────────────────────────
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/nat/delete",
     vol.Required("rule_id"): str,
@@ -702,17 +846,16 @@ async def ws_nat_delete(hass, connection, msg):
     # Rule IDs are formatted as "{origin}_{description}" e.g. "webui_WOLPC"
     origin, _, name = rule_id.partition("_")
     try:
-        await coordinator._make_request(
-            coordinator.api.firewall.async_delete_port_forwarding,
-            {"origin": origin or "webui", "id": name or rule_id},
-        )
-        await coordinator._make_request(coordinator.api.firewall.async_commit)
+        await coordinator.api.firewall.async_delete_port_forwarding({"origin": origin or "webui", "id": name or rule_id})
+        await coordinator.api.firewall.async_commit()
+        await _refresh_cached(coordinator, "upnp", coordinator.async_get_port_forwarding)
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "deleted"})
     except Exception as err:
         connection.send_error(msg["id"], "delete_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/nat/add",
     vol.Required("name"): str,
@@ -728,12 +871,10 @@ async def ws_nat_add(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.firewall.async_set_port_forwarding,
-            {
+        await coordinator.api.firewall.async_set_port_forwarding({
                 "origin": "webui",
                 "sourceInterface": "data",
-                "protocol": msg["protocol"],
+                "protocol": _protocol_numbers(msg["protocol"]),
                 "externalPort": msg["external_port"],
                 "internalPort": msg["internal_port"],
                 "destinationIPAddress": msg["destination_ip"],
@@ -743,7 +884,8 @@ async def ws_nat_add(hass, connection, msg):
                 "persistent": True,
             },
         )
-        await coordinator._make_request(coordinator.api.firewall.async_commit)
+        await coordinator.api.firewall.async_commit()
+        await _refresh_cached(coordinator, "upnp", coordinator.async_get_port_forwarding)
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "added"})
     except Exception as err:
@@ -752,6 +894,7 @@ async def ws_nat_add(hass, connection, msg):
 
 # ── DHCP static lease mutations ───────────────────────────────────────────────
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/dhcp_static/add",
     vol.Required("ip"): str,
@@ -771,12 +914,14 @@ async def ws_dhcp_static_add(hass, connection, msg):
         await coordinator.api.dhcp._auth.post(
             "DHCPv4.Server.Pool.default", "addStaticLease", params
         )
+        await _refresh_cached(coordinator, "dhcp_static_leases", coordinator.async_get_dhcp_static_leases)
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "added"})
     except Exception as err:
         connection.send_error(msg["id"], "add_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/dhcp_static/delete",
     vol.Required("mac"): str,
@@ -788,10 +933,8 @@ async def ws_dhcp_static_delete(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.dhcp.async_del_dhcp_staticlease,
-            {"MACAddress": msg["mac"].upper()},
-        )
+        await coordinator.api.dhcp.async_del_dhcp_staticlease({"MACAddress": msg["mac"].upper()})
+        await _refresh_cached(coordinator, "dhcp_static_leases", coordinator.async_get_dhcp_static_leases)
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "deleted"})
     except Exception as err:
@@ -884,10 +1027,59 @@ async def ws_get_advanced(hass, connection, msg):
     })
 
 
+@websocket_api.websocket_command({vol.Required("type"): "livebox/dmz"})
+@websocket_api.async_response
+async def ws_get_dmz(hass, connection, msg):
+    """Liste les entrées DMZ (Firewall:getDMZ, dict indexé par identifiant)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    raw = await _safe_post(coordinator, "Firewall", "getDMZ")
+    entries = []
+    if isinstance(raw, dict):
+        for dmz_id, entry in raw.items():
+            if not isinstance(entry, dict):
+                continue
+            entries.append({
+                "id": dmz_id,
+                "ip": entry.get("DestinationIPAddress", ""),
+                "source_prefix": entry.get("SourcePrefix", ""),
+                "enabled": bool(entry.get("Enable", True)),
+                "status": entry.get("Status", ""),
+            })
+    connection.send_result(msg["id"], {"supported": raw is not None, "entries": entries})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/dmz/delete",
+    vol.Required("dmz_id"): str,
+})
+@websocket_api.async_response
+async def ws_dmz_delete(hass, connection, msg):
+    """Supprime une entrée DMZ (Firewall:deleteDMZ)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.firewall.async_delete_firewall_DMZ({"id": msg["dmz_id"]})
+        await coordinator.api.firewall.async_commit()
+        await coordinator.async_request_refresh()
+        connection.send_result(msg["id"], {"status": "deleted"})
+    except Exception as err:
+        connection.send_error(msg["id"], "dmz_delete_failed", str(err))
+
+
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/dmz/set",
+    # « id » est réservé par l'enveloppe WebSocket de HA (numéro de message).
+    vol.Optional("dmz_id", default="webui"): vol.All(str, vol.Length(min=1, max=64)),
     vol.Required("ip"): str,
     vol.Required("enabled"): bool,
+    vol.Optional("source_prefix", default=""): str,
 })
 @websocket_api.async_response
 async def ws_dmz_set(hass, connection, msg):
@@ -896,17 +1088,25 @@ async def ws_dmz_set(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.firewall.async_set_dmz,
-            {"sourceInterface": "data", "destinationIPAddress": msg["ip"], "enable": msg["enabled"]},
-        )
-        await coordinator._make_request(coordinator.api.firewall.async_commit)
+        # Appels directs (pas `_make_request`, qui avale les erreurs Livebox et
+        # ferait afficher « succès » au panel même en cas de refus).
+        conf = {
+            "id": msg["dmz_id"],
+            "sourceInterface": "data",
+            "destinationIPAddress": msg["ip"],
+            "enable": msg["enabled"],
+        }
+        if msg["source_prefix"]:
+            conf["sourcePrefix"] = msg["source_prefix"]
+        await coordinator.api.firewall.async_set_firewall_DMZ(conf)
+        await coordinator.api.firewall.async_commit()
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "dmz_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/upnp/delete",
     vol.Required("rule_id"): str,
@@ -920,11 +1120,8 @@ async def ws_upnp_delete(hass, connection, msg):
     try:
         rule_id = msg["rule_id"]
         origin, _, name = rule_id.partition("_")
-        await coordinator._make_request(
-            coordinator.api.firewall.async_delete_port_forwarding,
-            {"origin": origin or "upnp", "id": name or rule_id},
-        )
-        await coordinator._make_request(coordinator.api.firewall.async_commit)
+        await coordinator.api.firewall.async_delete_port_forwarding({"origin": origin or "upnp", "id": name or rule_id})
+        await coordinator.api.firewall.async_commit()
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "deleted"})
     except Exception as err:
@@ -969,6 +1166,7 @@ def ws_get_upnp_rules(hass, connection, msg):
 
 # ── Advanced write commands ────────────────────────────────────────────────────
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/dns/set",
     vol.Required("mac"): str,
@@ -993,6 +1191,7 @@ async def ws_dns_set(hass, connection, msg):
         connection.send_error(msg["id"], "dns_set_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/upnp/toggle",
     vol.Required("enabled"): bool,
@@ -1017,6 +1216,22 @@ async def ws_upnp_toggle(hass, connection, msg):
         connection.send_error(msg["id"], "upnp_toggle_failed", str(err))
 
 
+@websocket_api.websocket_command({vol.Required("type"): "livebox/ddns/services"})
+@websocket_api.async_response
+async def ws_get_ddns_services(hass, connection, msg):
+    """Liste les fournisseurs DynDNS supportés par la Livebox (DynDNS:getServices)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    raw = await _safe_post(coordinator, "DynDNS", "getServices")
+    if isinstance(raw, dict):
+        raw = list(raw.values())
+    services = [str(x) for x in raw if isinstance(x, str)] if isinstance(raw, list) else []
+    connection.send_result(msg["id"], sorted(services))
+
+
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/ddns/add",
     vol.Required("service"): str,
@@ -1031,8 +1246,7 @@ async def ws_ddns_add(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.dyndns.async_add_host,
+        await coordinator.api.dyndns.async_add_host(
             {
                 "service": msg["service"],
                 "hostname": msg["hostname"],
@@ -1046,6 +1260,7 @@ async def ws_ddns_add(hass, connection, msg):
         connection.send_error(msg["id"], "ddns_add_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/ddns/delete",
     vol.Required("service"): str,
@@ -1058,16 +1273,14 @@ async def ws_ddns_delete(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.dyndns.async_del_host,
-            {"hostname": msg["hostname"]},
-        )
+        await coordinator.api.dyndns.async_del_host({"hostname": msg["hostname"]})
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "deleted"})
     except Exception as err:
         connection.send_error(msg["id"], "ddns_delete_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/ipv6/toggle",
     vol.Required("enabled"): bool,
@@ -1079,16 +1292,14 @@ async def ws_ipv6_toggle(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.nmc.async_set_IPv6,
-            {"Enable": msg["enabled"]},
-        )
+        await coordinator.api.nmc.async_set_IPv6({"Enable": msg["enabled"]})
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "ipv6_toggle_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/ntp/set",
     vol.Required("timezone"): str,
@@ -1100,10 +1311,7 @@ async def ws_ntp_set(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.nmc.async_set,
-            {"TimeZone": msg["timezone"]},
-        )
+        await coordinator.api.nmc.async_set({"TimeZone": msg["timezone"]})
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
@@ -1132,6 +1340,7 @@ def ws_get_ping_response(hass, connection, msg):
     connection.send_result(msg["id"], coordinator.data.get("ping_response", {"ipv4": False, "ipv6": False}))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/ping_response/set",
     vol.Required("ipv4"): bool,
@@ -1145,20 +1354,20 @@ async def ws_set_ping_response(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.firewall.async_set_respond_ping,
+        await coordinator.api.firewall.async_set_respond_ping(
             {
                 "sourceInterface": "data",
                 "service_enable": {"enableIPv4": msg["ipv4"], "enableIPv6": msg["ipv6"]},
             },
         )
-        await coordinator._make_request(coordinator.api.firewall.async_commit)
+        await coordinator.api.firewall.async_commit()
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "ping_set_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/device/type/set",
     vol.Required("mac"): str,
@@ -1183,6 +1392,7 @@ async def ws_set_device_type(hass, connection, msg):
         connection.send_error(msg["id"], "device_type_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/reboot"})
 @websocket_api.async_response
 async def ws_reboot(hass, connection, msg):
@@ -1192,15 +1402,13 @@ async def ws_reboot(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator._make_request(
-            coordinator.api.nmc.async_reboot,
-            {"reason": "GUI_Reboot"},
-        )
+        await coordinator.api.nmc.async_reboot({"reason": "GUI_Reboot"})
         connection.send_result(msg["id"], {"status": "rebooting"})
     except Exception as err:
         connection.send_error(msg["id"], "reboot_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/system/factory_reset"})
 @websocket_api.async_response
 async def ws_factory_reset(hass, connection, msg):
@@ -1216,6 +1424,7 @@ async def ws_factory_reset(hass, connection, msg):
         connection.send_error(msg["id"], "factory_reset_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/dhcp/params/set",
     vol.Optional("start_ip"): str,
@@ -1237,7 +1446,7 @@ async def ws_dhcp_params_set(hass, connection, msg):
         if "enabled" in msg:
             params["DHCPEnable"] = msg["enabled"]
         if params:
-            await coordinator._make_request(coordinator.api.nmc.async_set, params)
+            await coordinator.api.nmc.async_set(params)
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
@@ -1270,6 +1479,7 @@ def ws_get_repeaters(hass, connection, msg):
     connection.send_result(msg["id"], result)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/repeaters/set",
     vol.Required("key"): str,
@@ -1297,6 +1507,49 @@ async def ws_set_repeater(hass, connection, msg):
 
 
 # ── Système : LEDs, écran, sauvegarde/restauration ────────────────────────────
+
+async def _refresh_cached(coordinator, key: str, getter) -> None:
+    """Relit tout de suite une donnée du cache après une écriture.
+
+    `async_request_refresh` est temporisé (10 s) : juste après une autre action,
+    le panel relisait l'ancienne liste et la règle ajoutée n'apparaissait qu'au
+    poll suivant (jusqu'à 1 min).
+    """
+    try:
+        value = await getter()
+    except Exception:  # noqa: BLE001 — le refresh complet prendra le relais
+        return
+    if isinstance(coordinator.data, dict):
+        coordinator.data[key] = value
+        coordinator.async_update_listeners()
+
+
+def _led_percent(raw) -> int | None:
+    """Brightness Livebox (0-255) → pourcentage pour le panel."""
+    if isinstance(raw, dict) and isinstance(raw.get("Brightness"), (int, float)):
+        return round(raw["Brightness"] * 100 / 255)
+    return None
+
+
+# Noms de protocoles acceptés par le panel → numéros IANA attendus par la Livebox
+# (Firewall:setPortForwarding / setProtocolForwarding refusent "TCP" : « Invalid
+# parameter: protocol »).
+_PROTOCOL_NUMBERS = {"TCP": "6", "UDP": "17", "GRE": "47", "ESP": "50", "AH": "51", "ICMP": "1"}
+
+
+def _protocol_numbers(value: str) -> str:
+    """'TCP/UDP' → '6,17' ; '47' → '47' ; 'tcp,udp' → '6,17'. Lève ValueError si invalide."""
+    parts = [p.strip().upper() for p in str(value).replace("/", ",").split(",") if p.strip()]
+    numbers = []
+    for part in parts:
+        number = _PROTOCOL_NUMBERS.get(part, part)
+        if not number.isdigit() or not 0 <= int(number) <= 255:
+            raise ValueError(f"Protocole invalide : {part}")
+        numbers.append(str(int(number)))
+    if not numbers:
+        raise ValueError("Protocole manquant")
+    return ",".join(dict.fromkeys(numbers))
+
 
 async def _safe_post(coordinator, obj, fn, conf=None):
     """Appel direct à l'API sysbus, tolérant aux objets absents sur certains modèles."""
@@ -1327,8 +1580,8 @@ async def ws_get_system(hass, connection, msg):
         backup = {}
 
     connection.send_result(msg["id"], {
-        "led_orange": led_orange.get("Brightness") if isinstance(led_orange, dict) else None,
-        "led_white": led_white.get("Brightness") if isinstance(led_white, dict) else None,
+        "led_orange": _led_percent(led_orange),
+        "led_white": _led_percent(led_white),
         "show_wifi_password": (
             show_wifi_password.get("Enable") if isinstance(show_wifi_password, dict) else show_wifi_password
         ),
@@ -1340,6 +1593,7 @@ async def ws_get_system(hass, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/system/led/set",
     vol.Required("led"): vol.In(["orange", "white"]),
@@ -1354,12 +1608,16 @@ async def ws_set_led(hass, connection, msg):
         return
     obj = "LEDs.LED.Orange" if msg["led"] == "orange" else "LEDs.LED.White"
     try:
-        await coordinator.api.devices._auth.post(obj, "set", {"Brightness": msg["brightness"]})
+        # La Livebox utilise une échelle 0-255 (vérifié : LED blanche à 254) ;
+        # le panel raisonne en pourcentage.
+        raw = round(msg["brightness"] * 255 / 100)
+        await coordinator.api.devices._auth.post(obj, "set", {"Brightness": raw})
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "led_set_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/system/show_wifi_password/set",
     vol.Required("enabled"): bool,
@@ -1378,6 +1636,7 @@ async def ws_set_show_wifi_password(hass, connection, msg):
         connection.send_error(msg["id"], "show_wifi_password_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/system/backup/auto/set",
     vol.Required("enabled"): bool,
@@ -1396,6 +1655,7 @@ async def ws_set_auto_backup(hass, connection, msg):
         connection.send_error(msg["id"], "auto_backup_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/system/backup/run"})
 @websocket_api.async_response
 async def ws_run_backup(hass, connection, msg):
@@ -1411,6 +1671,7 @@ async def ws_run_backup(hass, connection, msg):
         connection.send_error(msg["id"], "backup_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/system/restore/run"})
 @websocket_api.async_response
 async def ws_run_restore(hass, connection, msg):
@@ -1443,6 +1704,7 @@ def ws_get_phone(hass, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/phone/contacts/add",
     vol.Required("name"): str,
@@ -1479,6 +1741,7 @@ async def ws_add_contact(hass, connection, msg):
         connection.send_error(msg["id"], "contact_add_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/phone/contacts/delete",
     vol.Required("unique_id"): str,
@@ -1518,6 +1781,7 @@ async def ws_get_phone_dect(hass, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/phone/calls/delete",
     vol.Required("call_id"): str,
@@ -1539,6 +1803,7 @@ async def ws_phone_call_delete(hass, connection, msg):
         connection.send_error(msg["id"], "call_delete_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/phone/calls/delete_all"})
 @websocket_api.async_response
 async def ws_phone_calls_delete_all(hass, connection, msg):
@@ -1555,6 +1820,7 @@ async def ws_phone_calls_delete_all(hass, connection, msg):
         connection.send_error(msg["id"], "calls_delete_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/phone/ring"})
 @websocket_api.async_response
 async def ws_phone_ring(hass, connection, msg):
@@ -1583,37 +1849,105 @@ def ws_get_graphs(hass, connection, msg):
     connection.send_result(msg["id"], coordinator.traffic_history)
 
 
-@callback
+GRAPH_MAX_POINTS = 720
+
+
+def _recorder_device_series(hass, start, entity_ids):
+    """(Exécuteur) États des capteurs de débit depuis `start`, lus dans le recorder."""
+    from homeassistant.components.recorder import history  # noqa: PLC0415
+
+    return history.get_significant_states(
+        hass,
+        start,
+        None,
+        entity_ids,
+        include_start_time_state=True,
+        significant_changes_only=False,
+        minimal_response=False,
+        no_attributes=True,
+    )
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/graphs/device",
     vol.Required("mac"): str,
+    vol.Optional("hours", default=12): vol.All(vol.Coerce(int), vol.Range(min=1, max=168)),
 })
-def ws_get_graphs_device(hass, connection, msg):
-    """Historique de trafic par appareil (keyed by MAC, oldest first)."""
+@websocket_api.async_response
+async def ws_get_graphs_device(hass, connection, msg):
+    """Historique de débit d'un appareil.
+
+    Source principale : le recorder de Home Assistant, qui enregistre déjà les
+    capteurs « Débit ↓/↑ » de chaque appareil → historique persistant (survit
+    aux redémarrages) et consultable jusqu'à 7 jours. Repli sur l'historique
+    en mémoire du coordinator si le recorder est absent ou exclut ces capteurs.
+    """
     coordinator = _get_coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    connection.send_result(msg["id"], coordinator.get_device_history(msg["mac"]))
+    mac = msg["mac"]
+    device = (coordinator.data.get("all_devices") or {}).get(mac) or {}
+    key = device.get("Key") or mac
+    prefix = f"{coordinator.unique_id or DOMAIN}_device_{key}_rate_"
+    registry = er.async_get(hass)
+    entity_ids = {
+        direction: registry.async_get_entity_id("sensor", DOMAIN, prefix + direction)
+        for direction in ("rx", "tx")
+    }
+
+    if "recorder" in hass.config.components and all(entity_ids.values()):
+        from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+
+        start = dt_util.utcnow() - timedelta(hours=msg["hours"])
+        try:
+            states = await get_instance(hass).async_add_executor_job(
+                _recorder_device_series, hass, start, list(entity_ids.values())
+            )
+        except Exception as err:  # noqa: BLE001 — repli sur la mémoire
+            _LOGGER.debug("Recorder history unavailable for %s: %s", mac, err)
+        else:
+            series = {
+                direction: [
+                    (max(st.last_updated, start), parse_float(st.state))
+                    for st in states.get(entity_id, [])
+                ]
+                for direction, entity_id in entity_ids.items()
+            }
+            points = downsample(merge_rate_series(series["rx"], series["tx"]), GRAPH_MAX_POINTS)
+            connection.send_result(msg["id"], {"source": "recorder", "hours": msg["hours"], "points": points})
+            return
+
+    connection.send_result(msg["id"], {
+        "source": "memory",
+        "hours": 12,
+        "points": coordinator.get_device_history(mac),
+    })
 
 
 @callback
 @websocket_api.websocket_command({vol.Required("type"): "livebox/graphs/devices"})
 def ws_get_graphs_device_list(hass, connection, msg):
-    """Liste des appareils pour lesquels un historique de trafic est disponible."""
+    """Appareils proposés dans le graphique : tous ceux connus de la box.
+
+    Avec le recorder, chaque appareil a un historique (capteurs de débit), pas
+    seulement ceux ayant eu du trafic depuis le dernier redémarrage.
+    """
     coordinator = _get_coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    devices = coordinator.data.get("devices", {})
-    result = []
-    for mac in coordinator.device_history_keys:
-        d = devices.get(mac, {})
-        result.append({
+    devices = coordinator.data.get("all_devices") or coordinator.data.get("devices", {})
+    macs = set(devices) | set(coordinator.device_history_keys)
+    result = [
+        {
             "mac": mac,
-            "name": d.get("Name", mac),
-        })
-    result.sort(key=lambda x: x["name"].lower())
+            "name": (devices.get(mac) or {}).get("Name") or mac,
+            "active": bool((devices.get(mac) or {}).get("Active")),
+        }
+        for mac in macs
+    ]
+    result.sort(key=lambda x: (not x["active"], x["name"].lower()))
     connection.send_result(msg["id"], result)
 
 
@@ -1672,6 +2006,7 @@ async def ws_get_tv_decoders(hass, connection, msg):
     connection.send_result(msg["id"], results)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/tvdecoders/set",
     vol.Required("mac"): str,
@@ -1694,6 +2029,7 @@ async def ws_set_tv_decoder(hass, connection, msg):
         connection.send_error(msg["id"], "tv_decoder_set_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/tvdecoders/remove",
     vol.Required("mac"): str,
@@ -1712,6 +2048,7 @@ async def ws_remove_tv_decoder(hass, connection, msg):
         connection.send_error(msg["id"], "tv_decoder_remove_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/tvdecoders/discover"})
 @websocket_api.async_response
 async def ws_discover_tv_decoders(hass, connection, msg):
@@ -1790,7 +2127,10 @@ async def ws_speedtest_results(hass, connection, msg):
         if rate == 0 and start in ("", "0001-01-01T00:00:00Z"):
             return None
         return {
-            "rate_mbit": round(rate / 1_000_000, 2) if rate > 1_000_000 else round(rate / 1000, 2),
+            # SpeedTest:getWANResults donne le débit en kbit/s (vérifié sur
+            # Livebox 6 : 1998148 = ~2 Gbit/s). L'ancienne heuristique
+            # « > 1 000 000 → divisé par 10^6 » affichait 2 Mbit/s en fibre 2G.
+            "rate_mbit": round(rate / 1000, 2),
             "latency_ms": d.get("latency"),
             "start": start,
             "end": d.get("end"),
@@ -1858,11 +2198,13 @@ async def ws_get_time(hass, connection, msg):
             return {}
 
     time_raw = await _api("async_get_time")
+    utc_raw = await _api("async_get_utctime")
     status_raw = await _api("async_get_status")
     ntp_raw = await _api("async_get_ntp")
     tz_raw = await _api("async_get_localtime_zonename")
 
     t = _st(time_raw)
+    utc = _st(utc_raw)
     s = _st(status_raw)
     tz = _st(tz_raw)
     ntp = _st(ntp_raw)
@@ -1872,13 +2214,16 @@ async def ws_get_time(hass, connection, msg):
     if isinstance(ntp_servers_raw, list):
         ntp_servers = [str(x) for x in ntp_servers_raw]
     elif isinstance(ntp, dict) and ntp:
-        ntp_servers = [str(v) for v in ntp.values()]
+        # Time:getNTPServers → {"data": {"servers": {"1": "thotfr1…", "2": …}}}
+        servers = ntp.get("servers", ntp)
+        values = servers.values() if isinstance(servers, dict) else servers
+        ntp_servers = [str(v) for v in values if isinstance(v, str)]
     else:
         ntp_servers = []
 
     local_time = t.get("time") or t.get("LocalTime") or t.get("localtime")
     timezone = (
-        tz.get("name") or tz.get("LocalTimeZoneName")
+        tz.get("timezone") or tz.get("name") or tz.get("LocalTimeZoneName")
         or coordinator.data.get("nmc", {}).get("TimeZone")
         or coordinator.data.get("infos", {}).get("LocalTimeZoneName")
         or t.get("timezone") or t.get("Timezone")
@@ -1894,7 +2239,7 @@ async def ws_get_time(hass, connection, msg):
 
     connection.send_result(msg["id"], {
         "local_time": str(local_time) if local_time is not None else None,
-        "utc_time": str(t.get("UTCTime") or t.get("utctime") or "") or None,
+        "utc_time": str(utc.get("time") or t.get("UTCTime") or t.get("utctime") or "") or None,
         "timezone": str(timezone) if timezone is not None else None,
         "ntp_servers": ntp_servers,
         "ntp_status": str(ntp_status_raw) if ntp_status_raw is not None else None,
@@ -1902,6 +2247,7 @@ async def ws_get_time(hass, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/system/time/set",
     vol.Required("timezone"): str,
@@ -1940,6 +2286,7 @@ async def ws_get_usb(hass, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/system/usb3/toggle",
     vol.Required("enabled"): bool,
@@ -1976,11 +2323,23 @@ async def ws_get_power(hass, connection, msg):
         "enabled": pm.get("Enable") if isinstance(pm, dict) else None,
         "status": pm.get("Status") if isinstance(pm, dict) else None,
         "mode": pm.get("ConfigurationMode") if isinstance(pm, dict) else None,
-        "power_watts": pm.get("Power") if isinstance(pm, dict) else None,
-        "profiles": profiles if isinstance(profiles, list) else [],
+        # PowerManagement.Power est en milliwatts (13740 ≈ 13,7 W sur Livebox 6).
+        "power_watts": (
+            round(pm["Power"] / 1000, 1)
+            if isinstance(pm, dict) and isinstance(pm.get("Power"), (int, float))
+            else None
+        ),
+        # getProfiles renvoie un dict indexé par nom de profil.
+        "profiles": [
+            {"name": name, "enabled": p.get("Enable"), "active": p.get("Activate"),
+             "modes": p.get("Modes", "")}
+            for name, p in (profiles.items() if isinstance(profiles, dict) else [])
+            if isinstance(p, dict)
+        ] if isinstance(profiles, dict) else (profiles if isinstance(profiles, list) else []),
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/system/power/set",
     vol.Required("enabled"): bool,
@@ -2108,6 +2467,7 @@ async def ws_get_wifi_detail(hass, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/wifi/radio/set",
     vol.Required("iface"): str,
@@ -2149,6 +2509,7 @@ async def ws_set_wifi_radio(hass, connection, msg):
         connection.send_error(msg["id"], "radio_set_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/wifi/vap/set",
     vol.Required("iface"): str,
@@ -2184,6 +2545,7 @@ async def ws_set_wifi_vap(hass, connection, msg):
         connection.send_error(msg["id"], "vap_set_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/wifi/kickstation",
     vol.Required("vap"): str,
@@ -2227,9 +2589,10 @@ async def ws_get_wifi_schedule(hass, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/wifi/schedule/set",
-    vol.Required("id"): str,
+    vol.Required("schedule_id"): str,
     vol.Required("state"): str,
 })
 @websocket_api.async_response
@@ -2241,7 +2604,7 @@ async def ws_set_wifi_schedule(hass, connection, msg):
         return
     try:
         await coordinator.api.devices._auth.post(
-            "WLanScheduler", "setState", {"ID": msg["id"], "state": msg["state"]}
+            "WLanScheduler", "setState", {"ID": msg["schedule_id"], "state": msg["state"]}
         )
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
@@ -2250,6 +2613,7 @@ async def ws_set_wifi_schedule(hass, connection, msg):
 
 # ── WAN reconnect (PPPoE) ─────────────────────────────────────────────────────
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/network/wan/reconnect"})
 @websocket_api.async_response
 async def ws_wan_reconnect(hass, connection, msg):
@@ -2283,6 +2647,7 @@ async def ws_get_remote_access(hass, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/remote_access/set",
     vol.Required("enabled"): bool,
@@ -2321,6 +2686,7 @@ async def ws_get_firewall_levels(hass, connection, msg):
     })
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/firewall/level/set",
     vol.Required("level"): str,
@@ -2333,7 +2699,7 @@ async def ws_set_firewall_level(hass, connection, msg):
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
     try:
-        await coordinator.api.firewall.async_set_firewall_level({"level": msg["level"]})
+        await coordinator.api.firewall.async_set_firewall_Level({"level": msg["level"]})
         await coordinator.api.firewall.async_commit()
         hass.async_create_task(coordinator.async_request_refresh())
         connection.send_result(msg["id"], {"status": "ok"})
@@ -2461,6 +2827,7 @@ async def ws_get_device_wan_access(hass, connection, msg):
     connection.send_result(msg["id"], schedule if schedule is not None else {})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/device/wan_access/set",
     vol.Required("mac"): str,
@@ -2613,6 +2980,7 @@ async def ws_get_repeater_info(hass, connection, msg):
 
 # ── Répéteur — contrôle Wifi et reboot ───────────────────────────────────────
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/repeaters/scan_ips"})
 @websocket_api.async_response
 async def ws_repeaters_scan_ips(hass, connection, msg):
@@ -2673,6 +3041,7 @@ async def _connect_repeater(hass, coordinator, key):
         return None, None, str(err)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/repeater/wifi/set",
     vol.Required("key"): str,
@@ -2703,6 +3072,7 @@ async def ws_repeater_wifi_set(hass, connection, msg):
         await session.close()
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/repeater/reboot",
     vol.Required("key"): str,
@@ -2731,6 +3101,7 @@ async def ws_repeater_reboot(hass, connection, msg):
         await session.close()
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/repeater/factory_reset",
     vol.Required("key"): str,
@@ -2761,6 +3132,7 @@ async def ws_repeater_factory_reset(hass, connection, msg):
 
 # ── Wifi global on/off + guest Wifi ──────────────────────────────────────────
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/wifi/global/toggle",
     vol.Required("enabled"): bool,
@@ -2782,6 +3154,7 @@ async def ws_wifi_global_toggle(hass, connection, msg):
         connection.send_error(msg["id"], "wifi_toggle_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/wifi/guest/toggle",
     vol.Required("enabled"): bool,
@@ -2815,6 +3188,7 @@ async def ws_guest_wifi_toggle(hass, connection, msg):
 
 # ── DynDNS global enable/disable ─────────────────────────────────────────────
 
+@websocket_api.require_admin
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/ddns/global/toggle",
     vol.Required("enabled"): bool,

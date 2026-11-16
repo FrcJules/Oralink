@@ -1,0 +1,70 @@
+blueprint:
+  name: Oralink — notification nouvel appareil
+  description: >-
+    Envoie une notification quand un appareil jamais vu se connecte à la
+    Livebox (entité « Événements réseau » d'Oralink, event_type « new »).
+    Optionnellement, notifie aussi les connexions/déconnexions.
+  domain: automation
+  source_url: https://github.com/FrcJules/Oralink/blob/master/blueprints/automation/oralink/new_device_notification.yaml
+  input:
+    events_entity:
+      name: Entité « Événements réseau »
+      selector:
+        entity:
+          filter:
+            - integration: oralink
+              domain: event
+    notify_target:
+      name: Service de notification
+      description: "Ex. notify.mobile_app_mon_telephone"
+      selector:
+        text:
+    event_types:
+      name: Types d'événements à notifier
+      default: [new]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Nouvel appareil (jamais vu)
+              value: new
+            - label: Connexion
+              value: connected
+            - label: Déconnexion
+              value: disconnected
+
+mode: queued
+max: 20
+
+triggers:
+  - trigger: state
+    entity_id: !input events_entity
+    # Au redémarrage de HA l'entité repasse de « unavailable » à son dernier
+    # état restauré : sans not_from, la dernière notification serait renvoyée.
+    not_from:
+      - unavailable
+      - unknown
+    not_to:
+      - unavailable
+      - unknown
+
+variables:
+  wanted: !input event_types
+  kind: "{{ trigger.to_state.attributes.event_type }}"
+  device_name: "{{ trigger.to_state.attributes.name or trigger.to_state.attributes.mac }}"
+  labels:
+    new: "Nouvel appareil sur le réseau"
+    connected: "Appareil connecté"
+    disconnected: "Appareil déconnecté"
+
+conditions:
+  - condition: template
+    value_template: "{{ kind in wanted }}"
+
+actions:
+  - action: !input notify_target
+    data:
+      title: "{{ labels[kind] }}"
+      message: >-
+        {{ device_name }} — IP {{ trigger.to_state.attributes.ip or 'inconnue' }},
+        MAC {{ trigger.to_state.attributes.mac }}

@@ -20,6 +20,7 @@ from homeassistant.helpers.storage import Store
 from .const import DOMAIN
 
 STORAGE_VERSION = 1
+SAVE_DELAY = 300  # secondes
 
 
 class TrafficHistoryStore:
@@ -35,6 +36,12 @@ class TrafficHistoryStore:
         data = await self._store.async_load()
         return data if isinstance(data, list) else []
 
-    async def async_save(self, history: list[dict[str, Any]]) -> None:
-        """Sauvegarde l'historique courant (appelé à chaque nouveau point)."""
-        await self._store.async_save(history)
+    def async_schedule_save(self, history: list[dict[str, Any]]) -> None:
+        """Planifie une sauvegarde différée de l'historique courant.
+
+        Appelé à chaque nouveau point (1/min) : réécrire immédiatement le JSON
+        complet (~720 points) à chaque fois sollicite le disque pour rien. Le Store
+        regroupe les écritures (au plus une toutes les SAVE_DELAY secondes) et
+        force l'écriture finale à l'arrêt de Home Assistant.
+        """
+        self._store.async_delay_save(lambda: history, SAVE_DELAY)

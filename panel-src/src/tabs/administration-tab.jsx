@@ -346,6 +346,22 @@ function AdvancedSection() {
     }
   };
 
+  const confirm = useConfirm();
+  const handleDdnsDelete = async (host) => {
+    if (!await confirm({
+      title: "Supprimer l'hôte DynDNS",
+      message: `Supprimer ${host.hostname} (${host.service}) ?`,
+      danger: true,
+    })) return;
+    try {
+      await runAction(
+        { type: "livebox/ddns/delete", service: host.service, hostname: host.hostname },
+        { success: "Hôte DynDNS supprimé." },
+      );
+      refresh();
+    } catch { /* toast déjà affiché */ }
+  };
+
   const handleUpnpDelete = async (ruleId) => {
     await runAction({ type: "livebox/upnp/delete", rule_id: ruleId }, { success: "Règle UPnP supprimée." });
     refresh();
@@ -370,14 +386,9 @@ function AdvancedSection() {
         )}
       </Card>
 
-      <Card title="DMZ">
-        {dmz && (
-          <>
-            <Row label="Activée" value={dmz.enabled ? "Oui" : "Non"} />
-            <Row label="IP cible" value={dmz.ip} />
-          </>
-        )}
-      </Card>
+      <DmzCard fallback={dmz} />
+
+      <PingResponseCard />
 
       <Card title="DynDNS">
         {ddns && (
@@ -401,13 +412,19 @@ function AdvancedSection() {
               ? <p className="text-sm lb-text-muted">Aucun hôte DynDNS configuré.</p>
               : <ul className="space-y-1 text-sm">
                   {ddns.hosts.map((h) => (
-                    <li key={h.hostname} className="flex justify-between border-b lb-border py-1 last:border-0">
-                      <span className="font-medium">{h.hostname}</span>
-                      <span className="lb-text-muted">{h.service} · {h.status}</span>
+                    <li key={`${h.service}-${h.hostname}`} className="flex items-center justify-between gap-2 border-b lb-border py-1 last:border-0">
+                      <span className="font-medium break-all">{h.hostname}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="lb-text-muted">{h.service}{h.status ? ` · ${h.status}` : ""}</span>
+                        <button onClick={() => handleDdnsDelete(h)} className="text-xs text-red-600 hover:underline">
+                          Supprimer
+                        </button>
+                      </span>
                     </li>
                   ))}
                 </ul>
             }
+            <DdnsAddForm onSaved={refresh} />
           </>
         )}
       </Card>
@@ -458,6 +475,213 @@ function AdvancedSection() {
 
       <RoutingCard />
     </div>
+  );
+}
+
+// ── DMZ ──────────────────────────────────────────────────────────────────────
+// Firewall:getDMZ/setDMZ/deleteDMZ — la Livebox gère une liste d'entrées
+// identifiées (l'interface web d'Orange utilise l'identifiant « webui »).
+
+const IPV4_RE = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
+function DmzCard({ fallback }) {
+  const { data, loading, error, refresh } = useWsData("livebox/dmz", {}, 60_000);
+  const runAction = useWsAction();
+  const confirm = useConfirm();
+  const [ip, setIp] = useState("");
+  const [saving, setSaving] = useState(false);
+  const entries = data?.entries ?? [];
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    const target = ip.trim();
+    if (!IPV4_RE.test(target)) return;
+    if (!await confirm({
+      title: "Activer la DMZ",
+      message: `Exposer ${target} sur Internet ?\n\nTout le trafic entrant non redirigé sera envoyé vers cet appareil, sans filtrage du pare-feu.`,
+      danger: true,
+    })) return;
+    setSaving(true);
+    try {
+      await runAction(
+        { type: "livebox/dmz/set", dmz_id: "webui", ip: target, enabled: true },
+        { success: `DMZ activée vers ${target}.` },
+      );
+      setIp("");
+      refresh();
+    } catch { /* toast déjà affiché */ } finally { setSaving(false); }
+  };
+
+  const handleDelete = async (entry) => {
+    if (!await confirm({ title: "Désactiver la DMZ", message: `Supprimer l'entrée DMZ vers ${entry.ip} ?` })) return;
+    try {
+      await runAction({ type: "livebox/dmz/delete", dmz_id: entry.id }, { success: "Entrée DMZ supprimée." });
+      refresh();
+    } catch { /* toast déjà affiché */ }
+  };
+
+  return (
+    <Card title="DMZ">
+      <StateBox loading={loading} error={error} />
+      {data && !data.supported && fallback && (
+        <>
+          <Row label="Activée" value={fallback.enabled ? "Oui" : "Non"} />
+          <Row label="IP cible" value={fallback.ip} />
+        </>
+      )}
+      {data?.supported && (
+        <>
+          {entries.length === 0
+            ? <p className="text-sm lb-text-muted">DMZ désactivée.</p>
+            : <ul className="space-y-1 text-sm">
+                {entries.map((entry) => (
+                  <li key={entry.id} className="flex items-center justify-between gap-2 border-b lb-border py-1 last:border-0">
+                    <span>
+                      <span className="font-medium font-mono">{entry.ip || "—"}</span>
+                      <span className="ml-2 text-xs lb-text-muted">
+                        {entry.id}{entry.source_prefix ? ` · depuis ${entry.source_prefix}` : ""}
+                        {entry.enabled ? "" : " · inactive"}
+                      </span>
+                    </span>
+                    <button onClick={() => handleDelete(entry)} className="text-xs text-red-600 hover:underline">
+                      Supprimer
+                    </button>
+                  </li>
+                ))}
+              </ul>}
+          {entries.length === 0 && (
+            <form onSubmit={handleAdd} className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="flex flex-1 min-w-36 flex-col gap-1 text-xs lb-text-muted">
+                IP de l'appareil exposé
+                <input value={ip} onChange={(e) => setIp(e.target.value)} placeholder="192.168.1.x"
+                  className="lb-input font-mono" />
+              </label>
+              <button type="submit" disabled={saving || !IPV4_RE.test(ip.trim())}
+                className="lb-btn-primary text-xs disabled:opacity-40">
+                {saving ? "…" : "Activer la DMZ"}
+              </button>
+            </form>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+// ── Réponse au ping (Firewall:setRespondToPing) ──────────────────────────────
+
+function PingResponseCard() {
+  const { data, loading, error, refresh } = useWsData("livebox/ping_response", {}, 60_000);
+  const runAction = useWsAction();
+  const [saving, setSaving] = useState(null);
+
+  const toggle = async (family) => {
+    if (!data || saving) return;
+    const next = { ipv4: !!data.ipv4, ipv6: !!data.ipv6, [family]: !data[family] };
+    setSaving(family);
+    try {
+      await runAction(
+        { type: "livebox/ping_response/set", ...next },
+        { success: `Réponse au ping ${family === "ipv4" ? "IPv4" : "IPv6"} ${next[family] ? "activée" : "désactivée"}.` },
+      );
+      refresh();
+    } catch { /* toast déjà affiché */ } finally { setSaving(null); }
+  };
+
+  return (
+    <Card title="Réponse au ping (WAN)">
+      <StateBox loading={loading} error={error} />
+      {data && (
+        <>
+          <p className="mb-2 text-xs lb-text-muted">
+            Autorise la Livebox à répondre aux requêtes ICMP (ping) venant d'Internet.
+          </p>
+          {[["ipv4", "IPv4"], ["ipv6", "IPv6"]].map(([family, label]) => (
+            <div key={family} className="flex items-center justify-between border-b lb-border py-1 text-sm last:border-0">
+              <span className="lb-text-muted">{label}</span>
+              <span className="flex items-center gap-2">
+                <span className="font-medium lb-text">{data[family] ? "Répond" : "Ignore"}</span>
+                <button onClick={() => toggle(family)} disabled={saving !== null}
+                  className="lb-link text-xs hover:underline disabled:opacity-40">
+                  {saving === family ? "…" : data[family] ? "Désactiver" : "Activer"}
+                </button>
+              </span>
+            </div>
+          ))}
+        </>
+      )}
+    </Card>
+  );
+}
+
+// ── Ajout d'un hôte DynDNS ───────────────────────────────────────────────────
+
+function DdnsAddForm({ onSaved }) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="lb-btn-primary mt-3 text-xs">
+        + Ajouter un hôte DynDNS
+      </button>
+    );
+  }
+  return <DdnsAddFormOpen onClose={() => setOpen(false)} onSaved={onSaved} />;
+}
+
+function DdnsAddFormOpen({ onClose, onSaved }) {
+  const { data: services } = useWsData("livebox/ddns/services");
+  const runAction = useWsAction();
+  const [form, setForm] = useState({ service: "", hostname: "", username: "", password: "" });
+  const [saving, setSaving] = useState(false);
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const valid = form.service && form.hostname.trim() && form.username.trim() && form.password;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!valid) return;
+    setSaving(true);
+    try {
+      await runAction(
+        { type: "livebox/ddns/add", ...form, hostname: form.hostname.trim(), username: form.username.trim() },
+        { success: `Hôte ${form.hostname.trim()} ajouté.` },
+      );
+      onSaved();
+      onClose();
+    } catch { /* toast déjà affiché */ } finally { setSaving(false); }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 grid gap-2 rounded-lg border lb-border p-3 sm:grid-cols-2">
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Fournisseur
+        {services?.length ? (
+          <select value={form.service} onChange={set("service")} className="lb-input">
+            <option value="">— choisir —</option>
+            {services.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+        ) : (
+          <input value={form.service} onChange={set("service")} placeholder="dyndns, no-ip…" className="lb-input" />
+        )}
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Nom d'hôte
+        <input value={form.hostname} onChange={set("hostname")} placeholder="maison.example.net" className="lb-input" />
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Identifiant
+        <input value={form.username} onChange={set("username")} autoComplete="off" className="lb-input" />
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Mot de passe
+        <input type="password" value={form.password} onChange={set("password")} autoComplete="new-password" className="lb-input" />
+      </label>
+      <div className="flex gap-2 sm:col-span-2">
+        <button type="submit" disabled={!valid || saving} className="lb-btn-primary text-xs disabled:opacity-40">
+          {saving ? "…" : "Ajouter"}
+        </button>
+        <button type="button" onClick={onClose} className="text-xs lb-text-muted hover:underline">Annuler</button>
+      </div>
+    </form>
   );
 }
 

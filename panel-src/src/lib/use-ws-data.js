@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWsCommand } from "./hass-context.jsx";
 
 /**
@@ -12,15 +12,25 @@ import { useWsCommand } from "./hass-context.jsx";
 export function useWsData(type, params = {}, interval = null) {
   const callWs = useWsCommand();
   const [state, setState] = useState({ data: null, loading: true, error: null });
+  // Numéro de la dernière requête lancée : une réponse plus ancienne (params
+  // changés entre-temps, ou auto-refresh qui double une requête lente) est
+  // ignorée au lieu d'écraser des données plus récentes.
+  const requestSeq = useRef(0);
+  const paramsKey = JSON.stringify(params);
 
   const load = useCallback(() => {
+    const seq = ++requestSeq.current;
     // On first fetch data=null → show spinner. On auto-refresh we already
     // have data, so keep it visible (no flicker) and just replace silently.
     setState((s) => ({ ...s, loading: s.data === null, error: null }));
-    callWs({ type, ...params })
-      .then((data) => setState({ data, loading: false, error: null }))
-      .catch((error) => setState((s) => ({ ...s, loading: false, error })));
-  }, [callWs, type, JSON.stringify(params)]);
+    callWs({ type, ...JSON.parse(paramsKey) })
+      .then((data) => {
+        if (seq === requestSeq.current) setState({ data, loading: false, error: null });
+      })
+      .catch((error) => {
+        if (seq === requestSeq.current) setState((s) => ({ ...s, loading: false, error }));
+      });
+  }, [callWs, type, paramsKey]);
 
   useEffect(() => {
     load();

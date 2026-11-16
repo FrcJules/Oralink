@@ -22,8 +22,9 @@ from homeassistant.const import (
     UnitOfTemperature,
     UnitOfTime,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -84,6 +85,46 @@ def get_closure_value_fn(path: str) -> Callable[..., Any]:
 
 
 SENSOR_TYPES: Final[list[LiveboxSensorEntityDescription]] = [
+    LiveboxSensorEntityDescription(
+        key="speedtest_down",
+        name="Speedtest Download",
+        icon=DOWNLOAD_ICON,
+        value_fn=lambda x: x.get("speedtest", {}).get("downstream", {}).get("rate_mbit"),
+        attrs={
+            "latency_ms": lambda x: x.get("speedtest", {}).get("downstream", {}).get("latency_ms"),
+            "tested_at": lambda x: x.get("speedtest", {}).get("downstream", {}).get("end"),
+        },
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DATA_RATE,
+        translation_key="speedtest_down",
+    ),
+    LiveboxSensorEntityDescription(
+        key="speedtest_up",
+        name="Speedtest Upload",
+        icon=UPLOAD_ICON,
+        value_fn=lambda x: x.get("speedtest", {}).get("upstream", {}).get("rate_mbit"),
+        attrs={
+            "latency_ms": lambda x: x.get("speedtest", {}).get("upstream", {}).get("latency_ms"),
+            "tested_at": lambda x: x.get("speedtest", {}).get("upstream", {}).get("end"),
+        },
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DATA_RATE,
+        translation_key="speedtest_up",
+    ),
+    LiveboxSensorEntityDescription(
+        key="speedtest_latency",
+        name="Speedtest Latency",
+        icon="mdi:timer-outline",
+        value_fn=lambda x: x.get("speedtest", {}).get("downstream", {}).get("latency_ms"),
+        native_unit_of_measurement=UnitOfTime.MILLISECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DURATION,
+        translation_key="speedtest_latency",
+    ),
     LiveboxSensorEntityDescription(
         key="down",
         name="xDSL Download",
@@ -500,23 +541,44 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-    # Per-device sensors — traffic rate (all devices) + signal strength (WiFi only)
-    device_entities: list[SensorEntity] = []
-    for mac, device in coordinator.data.get("devices", {}).items():
-        device_key = device.get("Key") or mac
-        device_name = device.get("Name") or mac
-        device_entities.append(
-            LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "rx")
+    # Per-device sensors — traffic rate (all devices) + signal strength (WiFi only).
+    # Ajoutés dynamiquement (comme les device_tracker / boutons WoL) : un appareil
+    # apparu après le démarrage obtient ses capteurs sans recharger l'intégration.
+    traffic_tracked: set[str] = set()
+    signal_tracked: set[str] = set()
+
+    @callback
+    def async_add_device_sensors() -> None:
+        device_entities: list[SensorEntity] = []
+        for mac, device in coordinator.data.get("devices", {}).items():
+            device_key = device.get("Key") or mac
+            device_name = device.get("Name") or mac
+            if mac not in traffic_tracked:
+                traffic_tracked.add(mac)
+                device_entities.append(
+                    LiveboxDeviceTrafficSensor(
+                        coordinator, device_key, device_name, mac, "rx"
+                    )
+                )
+                device_entities.append(
+                    LiveboxDeviceTrafficSensor(
+                        coordinator, device_key, device_name, mac, "tx"
+                    )
+                )
+            if mac not in signal_tracked and device.get("OperatingFrequencyBand"):
+                signal_tracked.add(mac)
+                device_entities.append(
+                    LiveboxDeviceSignalSensor(coordinator, device_key, device_name, mac)
+                )
+        if device_entities:
+            async_add_entities(device_entities)
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass, coordinator.signal_device_new, async_add_device_sensors
         )
-        device_entities.append(
-            LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "tx")
-        )
-        if device.get("OperatingFrequencyBand"):
-            device_entities.append(
-                LiveboxDeviceSignalSensor(coordinator, device_key, device_name, mac)
-            )
-    if device_entities:
-        async_add_entities(device_entities)
+    )
+    async_add_device_sensors()
 
 
 class LiveboxSensor(LiveboxEntity, SensorEntity):  # pyrefly: ignore[inconsistent-inheritance]

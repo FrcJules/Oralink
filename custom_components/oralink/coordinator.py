@@ -14,6 +14,7 @@ from aiosysbus.exceptions import AiosysbusException
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -29,6 +30,7 @@ from .const import (
     DEFAULT_WIFI_TRACKING,
     DOMAIN,
 )
+from .event_log_store import MAX_EVENTS, EventLogStore
 from .helpers import find_item
 from .repeater_store import RepeaterStore
 from .topology_store import TopologyStore
@@ -39,6 +41,33 @@ _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(minutes=1)
 TOPOLOGY_SCAN_INTERVAL = timedelta(minutes=15)
 TOPOLOGY_BUILD_TIMEOUT = 30
+# Événement publié sur le bus HA à chaque connexion/déconnexion/nouvel appareil
+EVENT_DEVICE = f"{DOMAIN}_device_event"
+# Écart max entre deux points d'historique pour calculer un débit WAN différentiel
+MAX_RATE_GAP = timedelta(minutes=5)
+# Requêtes Livebox concurrentes max pour les appels « un par appareil »
+DEVICE_REQUEST_CONCURRENCY = 4
+
+
+def _payload(raw: Any) -> Any:
+    """Contenu utile d'une réponse sysbus : "status" s'il est renseigné, sinon "data"."""
+    if not isinstance(raw, dict):
+        return None
+    status = raw.get("status")
+    return status if status is not None else raw.get("data")
+
+
+def _elapsed_seconds(previous: Any, now: datetime) -> float | None:
+    """Seconds between an ISO-ish timestamp string (str(datetime)) and now."""
+    if not isinstance(previous, str):
+        return None
+    try:
+        prev_dt = datetime.fromisoformat(previous)
+    except ValueError:
+        return None
+    if prev_dt.tzinfo is None:
+        prev_dt = prev_dt.replace(tzinfo=DEFAULT_TIME_ZONE)
+    return (now - prev_dt).total_seconds()
 
 
 class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
@@ -59,6 +88,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self._topology_cache: tuple[dict[str, str], dict[str, str]] = ({}, {})
         self._topology_cache_at: datetime | None = None
         self._topology_last_update: str | None = None
+        self._all_devices: dict[str, Any] = {}
 
         # Rolling in-memory history for the "Graphiques" tab (~12h at 1 update/min)
         self._traffic_history: deque[dict[str, Any]] = deque(maxlen=720)
@@ -67,8 +97,9 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         # when devices churn through randomized/rotating MAC addresses.
         self._device_history: OrderedDict[str, deque[dict[str, Any]]] = OrderedDict()
         self._device_history_max_macs = 200
-        # Rolling connection/disconnection log for the "Événements" tab
-        self._event_log: deque[dict[str, Any]] = deque(maxlen=300)
+        # Rolling connection/disconnection log for the "Événements" tab,
+        # persisted (with the set of known MACs) by EventLogStore.
+        self.event_log_store = EventLogStore(hass, config_entry.entry_id)
 
         self.repeater_store = RepeaterStore(hass, config_entry.entry_id)
         self.topology_store = TopologyStore(hass, config_entry.entry_id)
@@ -90,6 +121,9 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         await self.tv_decoder_store.async_load()
         for point in await self.traffic_history_store.async_load():
             self._traffic_history.append(point)
+        await self.event_log_store.async_load()
+        if not self.event_log_store.known:
+            self._seed_known_devices()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data."""
@@ -161,6 +195,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "cmissed": cmissed,
                 "callers": callers,
                 "devices": devices,
+                "all_devices": self._all_devices,
                 "dsl_status": await self.async_get_dsl_status(),
                 "infos": infos,
                 "nmc": await self.async_get_nmc(),
@@ -187,9 +222,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "device_services": device_services,
                 "iptv_status": iptv_status,
                 "connection_extra": connection_extra,
-                "devices_wan_access": {
-                    key: await self.async_get_device_schedule(key) for key in devices
-                },
+                "devices_wan_access": await self.async_get_devices_schedules(devices),
                 "ddns": await self.async_get_ddns(),
                 "wifi_stats": await self.async_get_wifi_stats(),
                 "fiber_status": await self.async_get_fiber_status(),
@@ -211,6 +244,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "reboot_history": await self.async_get_reboot_history(),
                 "ping_response": await self.async_get_ping_response(),
                 "contacts": await self.async_get_contacts(),
+                "speedtest": await self.async_get_speedtest(),
             }
         except AiosysbusException as error:
             _LOGGER.error("Error while fetch data information: %s", error)
@@ -254,6 +288,14 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             await self._make_request(self.api.devices.async_get_devices, parameters)
         ).get("status", {})
         _LOGGER.debug("Fetch Devices: %s", devices)
+        # Vue complète (Wi-Fi + Ethernet) pour le panel, quelles que soient les
+        # options de suivi (qui ne pilotent que les entités device_tracker).
+        self._all_devices = {
+            device["Key"]: device
+            for group in ("wifi", "eth")
+            for device in devices.get(group, []) or []
+            if isinstance(device, dict) and device.get("Key")
+        }
         if wifi_tracking:
             device_counters["wireless"] = len(devices.get("wifi", {}))
             for device in devices.get("wifi", {}):
@@ -419,6 +461,32 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             })
         return contacts
 
+    async def async_get_speedtest(self) -> dict[str, Any]:
+        """Derniers résultats du test de débit mémorisés par la box (SpeedTest:getWANResults).
+
+        Débits fournis en kbit/s (vérifié sur Livebox 6) → convertis en Mbit/s.
+        """
+        try:
+            raw = _payload(await self.api._auth.post("SpeedTest", "getWANResults", None))
+        except Exception as err:  # noqa: BLE001 — objet absent sur certains modèles
+            _LOGGER.debug("Could not fetch speedtest results: %s", err)
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+
+        def _direction(key: str) -> dict[str, Any]:
+            d = raw.get(key) or raw.get(key.lower()) or {}
+            rate = d.get("rate") if isinstance(d, dict) else None
+            if not isinstance(rate, (int, float)) or rate <= 0:
+                return {}
+            return {
+                "rate_mbit": round(rate / 1000, 2),
+                "latency_ms": d.get("latency"),
+                "end": d.get("end"),
+            }
+
+        return {"downstream": _direction("Downstream"), "upstream": _direction("Upstream")}
+
     async def async_get_dsl_status(self) -> dict[str, Any]:
         """Get dsl status."""
         parameters = {"mibs": "dsl", "flag": "", "traverse": "down"}
@@ -569,6 +637,25 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         ).get("data", {})
         return data.get("scheduleInfo", {})
 
+    async def async_get_devices_schedules(
+        self, devices: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Get the ToD schedule of every device, with bounded concurrency.
+
+        Une requête par appareil : en séquentiel (~50 appareils) c'était le
+        poste le plus lent de chaque cycle. Le sémaphore évite de saturer le
+        serveur web de la Livebox.
+        """
+        semaphore = asyncio.Semaphore(DEVICE_REQUEST_CONCURRENCY)
+
+        async def _one(key: str) -> Any:
+            async with semaphore:
+                return await self.async_get_device_schedule(key)
+
+        keys = list(devices)
+        results = await asyncio.gather(*(_one(key) for key in keys))
+        return dict(zip(keys, results, strict=True))
+
     async def async_is_remote_access(self) -> bool:
         """Get Remote access status."""
         ra = (await self._make_request(self.api.remoteaccess.async_get)).get(
@@ -586,25 +673,103 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                     async_dispatcher_send(self.hass, self.signal_wan_access_new)
                     break
 
+    def _seed_known_devices(self) -> None:
+        """Amorce les appareils connus depuis le registre d'appareils HA.
+
+        Au premier lancement de la détection, les appareils hors ligne (absents
+        de la liste en mode « Active only ») ne doivent pas être signalés comme
+        « nouveaux » à leur prochaine connexion : ceux qui ont déjà un appareil
+        HA créé par cette intégration sont donc considérés comme connus.
+        """
+        registry = dr.async_get(self.hass)
+        now = str(datetime.now(tz=DEFAULT_TIME_ZONE))
+        for device in dr.async_entries_for_config_entry(
+            registry, self.config_entry.entry_id
+        ):
+            for domain, identifier in device.identifiers:
+                if domain == DOMAIN and ":" in identifier:
+                    self.event_log_store.known.setdefault(
+                        identifier,
+                        {"name": device.name_by_user or device.name or identifier,
+                         "first_seen": now},
+                    )
+
     def _record_device_events(
         self, previous_devices: dict[str, Any], devices: dict[str, Any]
     ) -> None:
-        """Append connection/disconnection events detected since the last poll."""
-        if not previous_devices:
+        """Journalise connexions, déconnexions et nouveaux appareils.
+
+        Compare les ensembles d'appareils *actifs* entre deux rafraîchissements
+        plutôt que les appareils présents dans les deux listes : en mode
+        « Active only » (défaut), un appareil déconnecté disparaît purement et
+        simplement de `devices`, et un appareil qui revient y réapparaît — une
+        comparaison limitée aux MAC communes ne voyait donc ni l'un ni l'autre.
+
+        Chaque événement est aussi publié sur le bus HA (`oralink_device_event`,
+        champ `event` = connected / disconnected / new) pour les automatisations.
+        """
+        store = self.event_log_store
+        current_active = {
+            mac for mac, device in devices.items() if device.get("Active")
+        }
+        if previous_devices:
+            previous_active = {
+                mac for mac, d in previous_devices.items() if d.get("Active")
+            }
+        else:
+            # Premier rafraîchissement depuis le démarrage : on repart de l'état
+            # sauvegardé pour ne pas rater ce qui a changé pendant l'arrêt.
+            previous_active = set(store.active)
+
+        if not devices and previous_active:
+            # Liste vide alors que des appareils étaient actifs : très
+            # probablement un échec de requête (_make_request renvoie {}), pas
+            # une déconnexion générale — on n'enregistre rien.
             return
+
         now = str(datetime.now(tz=DEFAULT_TIME_ZONE))
-        for mac, device in devices.items():
-            was_active = previous_devices.get(mac, {}).get("Active")
-            is_active = device.get("Active", False)
-            if was_active is None or was_active == is_active:
-                continue
-            self._event_log.appendleft({
+        new_events: list[dict[str, Any]] = []
+
+        def _event(mac: str, device: dict[str, Any], kind: str) -> None:
+            new_events.append({
                 "time": now,
                 "mac": mac,
-                "name": device.get("Name", mac),
-                "ip": device.get("IPAddress", ""),
-                "event": "connected" if is_active else "disconnected",
+                "name": device.get("Name") or mac,
+                "ip": device.get("IPAddress", "") or "",
+                "event": kind,
             })
+
+        # Nouveaux appareils : jamais vus auparavant. Au tout premier lancement
+        # (aucun appareil connu), on amorce la liste sans rien signaler.
+        bootstrap = not store.known
+        for mac, device in devices.items():
+            if mac in store.known:
+                continue
+            store.known[mac] = {"name": device.get("Name") or mac, "first_seen": now}
+            if not bootstrap:
+                _event(mac, device, "new")
+
+        if previous_devices or store.active:
+            for mac in sorted(current_active - previous_active):
+                _event(mac, devices[mac], "connected")
+            for mac in sorted(previous_active - current_active):
+                device = devices.get(mac) or previous_devices.get(mac) or {
+                    "Name": store.known.get(mac, {}).get("name", mac)
+                }
+                _event(mac, device, "disconnected")
+
+        changed = bool(new_events) or current_active != store.active
+        store.active = current_active
+        if new_events:
+            store.events[:0] = reversed(new_events)
+            del store.events[MAX_EVENTS:]
+            for event in new_events:
+                self.hass.bus.async_fire(
+                    EVENT_DEVICE,
+                    {"entry_id": self.config_entry.entry_id, **event},
+                )
+        if changed or bootstrap:
+            store.async_schedule_save()
 
     async def _record_traffic_history(
         self,
@@ -629,17 +794,34 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             # or sysbus naming (BytesReceived/BytesSent) depending on firmware.
             wan_rx = fiber_stats.get("BytesReceived") or fiber_stats.get("RxBytes")
             wan_tx = fiber_stats.get("BytesSent") or fiber_stats.get("TxBytes")
+        now = datetime.now(tz=DEFAULT_TIME_ZONE)
         wan_rate_rx = 0.0
         wan_rate_tx = 0.0
         if wan_rx is not None and self._traffic_history:
             prev = self._traffic_history[-1]
-            prev_rx = prev.get("wan_rx_bytes") or 0
-            prev_tx = prev.get("wan_tx_bytes") or 0
-            # Bytes delta over the coordinator interval (60 s) → Mbit/s
-            wan_rate_rx = round(max(0, wan_rx - prev_rx) / 60 * 8 / 1_000_000, 3)
-            wan_rate_tx = round(max(0, wan_tx - prev_tx) / 60 * 8 / 1_000_000, 3)
+            elapsed = _elapsed_seconds(prev.get("time"), now)
+            prev_rx = prev.get("wan_rx_bytes")
+            prev_tx = prev.get("wan_tx_bytes")
+            # Débit = delta d'octets / temps réellement écoulé depuis le point
+            # précédent (et non un intervalle supposé de 60 s : un rafraîchissement
+            # manuel, un poll en retard ou un redémarrage de HA — dernier point
+            # rechargé depuis le Store, potentiellement vieux de plusieurs heures —
+            # produisaient sinon des pics aberrants). Au-delà de MAX_RATE_GAP on
+            # considère le delta non significatif (trou dans l'historique).
+            if (
+                elapsed is not None
+                and 0 < elapsed <= MAX_RATE_GAP.total_seconds()
+                and isinstance(prev_rx, (int, float))
+                and isinstance(prev_tx, (int, float))
+            ):
+                wan_rate_rx = round(
+                    max(0, wan_rx - prev_rx) / elapsed * 8 / 1_000_000, 3
+                )
+                wan_rate_tx = round(
+                    max(0, (wan_tx or 0) - prev_tx) / elapsed * 8 / 1_000_000, 3
+                )
 
-        now_str = str(datetime.now(tz=DEFAULT_TIME_ZONE))
+        now_str = str(now)
         self._traffic_history.append({
             "time": now_str,
             "rate_rx": rate_rx,
@@ -664,12 +846,12 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                     "rate_tx": t.get("rate_tx", 0),
                 })
 
-        await self.traffic_history_store.async_save(list(self._traffic_history))
+        self.traffic_history_store.async_schedule_save(list(self._traffic_history))
 
     @property
     def event_log(self) -> list[dict[str, Any]]:
-        """Recent connection/disconnection events (most recent first)."""
-        return list(self._event_log)
+        """Recent connection/disconnection/new-device events (most recent first)."""
+        return list(self.event_log_store.events)
 
     @property
     def traffic_history(self) -> list[dict[str, Any]]:
@@ -722,18 +904,18 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         if not isinstance(forwarding, dict):
             return []
         rules = []
-        for rule in forwarding.values():
+        for rule_id, rule in forwarding.items():
+            if not isinstance(rule, dict):
+                continue
             rules.append(
                 {
-                    "id": rule.get("Id"),
-                    "name": rule.get("Description") or rule.get("Id", ""),
-                    "enable": rule.get("Status", "Disabled") == "Enabled",
+                    "id": rule.get("Id") or rule_id,
+                    "name": rule.get("Description") or rule.get("Id") or rule_id,
+                    "enable": rule.get("Enable", rule.get("Status") == "Enabled"),
+                    "status": rule.get("Status", ""),
                     "protocol": rule.get("Protocol", ""),
-                    "external_port_start": rule.get("ExternalPortStart", ""),
-                    "external_port_end": rule.get("ExternalPortEnd", ""),
-                    "internal_port_start": rule.get("InternalPortStart", ""),
-                    "internal_port_end": rule.get("InternalPortEnd", ""),
                     "destination_ip": rule.get("DestinationIPAddress", ""),
+                    "source_prefix": rule.get("SourcePrefix", ""),
                 }
             )
         return rules
@@ -944,29 +1126,34 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def async_get_iptv_status(self) -> dict[str, Any]:
         """Get IPTV status, multi-screens flag and config (NMC.OrangeTV)."""
-        try:
-            status_raw, multiscreens_raw, config_raw = await asyncio.gather(
+        status_raw, multiscreens_raw, config_raw = (
+            r if isinstance(r, dict) else None
+            for r in await asyncio.gather(
                 self.api._auth.post("NMC.OrangeTV", "getIPTVStatus", None),
                 self.api._auth.post("NMC.OrangeTV", "getIPTVMultiScreens", None),
                 self.api._auth.post("NMC.OrangeTV", "getIPTVConfig", None),
+                return_exceptions=True,
             )
-        except Exception as err:
-            _LOGGER.debug("Could not fetch IPTV status: %s", err)
-            return {"status": None, "multi_screens": None, "config": {}}
+        )
 
         # getIPTVStatus response shape: {"status": {"IPTVStatus": [...]}} on most
         # models, or the list directly on others.
-        status = (status_raw or {}).get("status")
+        # Selon l'objet, la Livebox répond dans "status" ou dans "data"
+        # (Livebox 6 : {"status": null, "data": {"IPTVStatus": "Available"}}).
+        status = _payload(status_raw)
         iptv_status = status.get("IPTVStatus") if isinstance(status, dict) else status
 
-        multiscreens_status = (multiscreens_raw or {}).get("status")
+        multiscreens_status = _payload(multiscreens_raw)
         multiscreens = (
             multiscreens_status.get("Enable")
             if isinstance(multiscreens_status, dict)
             else multiscreens_status
         )
 
-        config_status = (config_raw or {}).get("status")
+        config_status = _payload(config_raw)
+        if isinstance(config_status, list):
+            # Livebox 6 : liste de canaux (VLAN, multicast…)
+            config_status = {"channels": config_status}
 
         return {
             "status": iptv_status,
@@ -976,19 +1163,22 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def async_get_connection_extra(self) -> dict[str, Any]:
         """Get primary WAN error code, VLAN ID, MTU, IPv6 autodetect mode and CG-NAT status."""
-        try:
-            error_raw, vlan_raw, mtu_raw, autodetect_raw, cgnat_raw = await asyncio.gather(
+        # return_exceptions : un objet absent sur ce modèle (ex.
+        # NMC.ServiceEligibility.DSLITE sur Livebox 6 → « Object or parameter
+        # not found ») ne doit pas faire perdre VLAN, MTU, etc.
+        error_raw, vlan_raw, mtu_raw, autodetect_raw, cgnat_raw = (
+            r if isinstance(r, dict) else None
+            for r in await asyncio.gather(
                 self.api._auth.post("NMC.Error", "getPrimaryErrorCode", None),
                 self.api._auth.post("NeMo.Intf.data", "getFirstParameter", {"name": "VLANID"}),
                 self.api._auth.post("NeMo.Intf.data", "getFirstParameter", {"name": "MTU"}),
                 self.api._auth.post("NMC.Autodetect", "get", None),
                 self.api._auth.post("NMC.ServiceEligibility.DSLITE", "get", None),
+                return_exceptions=True,
             )
-        except Exception as err:
-            _LOGGER.debug("Could not fetch connection extra status: %s", err)
-            return {"error_code": None, "vlan_id": None, "mtu": None, "autodetect": {}, "cgnat": {}}
+        )
 
-        error_code = (error_raw or {}).get("status")
+        error_code = (error_raw or {}).get("status") or None
         vlan_raw_val = (vlan_raw or {}).get("status")
         mtu_raw_val = (mtu_raw or {}).get("status")
         autodetect = (autodetect_raw or {}).get("status")

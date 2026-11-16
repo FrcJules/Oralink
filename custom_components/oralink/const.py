@@ -12,6 +12,7 @@ PLATFORMS = [
     "device_tracker",
     "calendar",
     "select",
+    "event",
 ]
 
 TEMPLATE_SENSOR = "Oralink"

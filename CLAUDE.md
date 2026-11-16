@@ -52,16 +52,55 @@ npm run build        # écrit directement dans custom_components/oralink/www/rea
 Puis incrémenter `_PANEL_BUILD` dans `custom_components/oralink/__init__.py`
 (cache-busting de l'URL du module).
 
+**Découpage du bundle** (`vite.config.js`) : l'entrée `livebox-panel-react.js`
+(~1 Ko) charge un chunk `core` ; Topologie et Graphiques sont en `React.lazy`
+dans `chunks/`. Contraintes : une seule CSS (`cssCodeSplit: false`, le Shadow
+DOM ne charge que `livebox-panel-react.css`), `base: './'`, et **aucun chunk
+ne doit importer l'entrée** — HA la charge avec `?v=<build>`, un import sans
+paramètre en créerait une 2e instance (2 React). D'où `manualChunks` qui met
+tout le code partagé dans `core`. Vérifier après build :
+`grep -l livebox-panel-react.js custom_components/oralink/www/react-panel/chunks/*`
+doit être vide. `scripts/deploy.sh` nettoie les chunks périmés côté HA.
+
+**Graphique par appareil** : `livebox/graphs/device` lit l'historique des
+capteurs « Débit ↓/↑ » dans le **recorder de HA** (persistant, jusqu'à 7 jours
+via le paramètre `hours`, fusion/sous-échantillonnage dans `history_utils.py`),
+avec repli sur l'historique en mémoire du coordinator quand l'appareil n'a pas
+de capteurs (appareils filaires si le suivi Ethernet est désactivé).
+
 **⚠️ Le dépôt Git n'est PAS synchronisé automatiquement avec l'instance Home
 Assistant.** Après un `git push` (ou même sans commit, pour tester), il faut
 explicitement déployer les fichiers modifiés : l'instance HA est montée en
 CIFS/SMB sur `//192.168.1.134/config/custom_components`, visible localement
-sous `/home/jules/projects/Oralink/Home-Assistant/oralink/`. Copier
-`custom_components/oralink/` vers ce dossier — **utiliser `cp`, pas `rsync`**
-(le point de montage CIFS ne supporte pas le pattern temp-file+rename de
-rsync, `cp` fonctionne) — puis recharger l'intégration dans Home Assistant
-(Paramètres → Appareils et services → Oralink → Recharger) pour que le
-changement prenne effet.
+sous `/home/appuser/Perso/Oralink/Home-Assistant/oralink/`. **Utiliser
+`scripts/deploy.sh`** : copie avec `cp` (pas `rsync` — le mount CIFS ne
+supporte pas son pattern temp-file+rename), régénère les `.js.gz` et vérifie
+par HTTP que HA sert bien le nouveau bundle.
+
+⚠️ **Code Python : redémarrer HA, pas seulement recharger.** Recharger
+l'intégration (Paramètres → Appareils et services → Oralink → Recharger)
+relance l'entrée avec les modules *déjà importés* : le nouveau code Python
+n'est pris en compte qu'après un **redémarrage complet de Home Assistant**
+(Paramètres → Système → Redémarrer). Vérifié le 2026-11-16 : après un
+rechargement, les nouvelles commandes WS restaient « Unknown command » et
+`__pycache__` n'était pas régénéré. Ça vaut aussi pour un changement du seul
+bundle JS : `_PANEL_BUILD` est une constante Python, l'URL du panel (et donc
+le cache-busting) ne change qu'après redémarrage.
+
+⚠️ **Piège des `.gz`** : le serveur statique de HA sert `<fichier>.js.gz` en
+priorité aux navigateurs qui acceptent gzip. Un simple `cp` du bundle laisse
+l'ancien `.gz` en place → le navigateur continue de recevoir l'ancien panel
+alors que `curl` (sans gzip) montre le nouveau. Le script s'en charge.
+
+**Tests** : `python3 -m pytest tests/ -q` — sans installer Home Assistant :
+- `test_coordinator_logic.py` : logique du coordinator (événements, débit
+  WAN) avec des stubs des modules HA ;
+- `test_static_consistency.py` : chaque handler WS est enregistré, chaque
+  commande appelée par le panel existe, chaque commande d'écriture exige
+  l'admin, et chaque `api.<module>.async_*` existe dans aiosysbus (ce dernier
+  test est ignoré si aiosysbus n'est pas installé — sinon pointer
+  `AIOSYSBUS_SRC` vers le dossier `aiosysbus/` des sources 1.2.4, obtenues par
+  `pip download --no-deps --no-binary :all: aiosysbus==1.2.4`).
 
 **Migration `livebox` → `oralink` (2026-09-02)** : le domaine a changé,
 l'ancien dossier `custom_components/livebox/` (et l'entrée d'intégration
@@ -80,10 +119,16 @@ le dossier de travail à côté de ce repo). Fonctionnalités identifiées comme
 manquantes côté panel Oralink, par ordre de priorité suggéré :
 
 1. ✅ **Journal d'événements** (`LmEventsTab`) — onglet **"Événements"** qui
-   journalise en mémoire (côté `coordinator`, `deque` `_event_log`, exposé par
-   `coordinator.event_log` / commande WS `livebox/events`) les transitions
-   `Active` détectées entre deux rafraîchissements des appareils
-   (`_record_device_events`). Volontairement plus simple que le système natif
+   journalise (côté `coordinator`, `_record_device_events`, exposé par
+   `coordinator.event_log` / commande WS `livebox/events`) connexions,
+   déconnexions et **nouveaux appareils** (MAC jamais vue). Comparaison des
+   ensembles d'appareils *actifs* (indispensable en mode « Active only », où
+   un appareil déconnecté disparaît de la liste). Persisté avec les MAC
+   connues dans `event_log_store.py` (`.storage/oralink_event_log_<entry>`,
+   amorcé depuis le registre d'appareils HA). Chaque événement est publié sur
+   le bus HA : `oralink_device_event` (`event` = `new`/`connected`/
+   `disconnected`, `mac`, `name`, `ip`, `entry_id`) → base idéale pour une
+   automatisation « appareil inconnu sur le réseau ». Volontairement plus simple que le système natif
    `eventmanager`/`get_events` de la Livebox (notifications par
    souscription/long-polling — `open_channel`/`subscribe`, cf.
    `LmEventsTab.LmEventsApi`), peu adapté au modèle `DataUpdateCoordinator`
@@ -154,12 +199,62 @@ dangereuse de l'onglet "Administration") et répéteurs
 "Répéteurs") — `NMC:reset`, action irréversible, double confirmation côté
 panel.
 
-**Redirection de protocole / Port Triggering (PTF)** — section dédiée dans
-l'onglet "Réseau" sous le NAT existant, `Firewall:getProtocolForwarding` /
-`setProtocolForwarding` / `deleteProtocolForwarding` (pas wrappé par
-`aiosysbus`, appels `_auth.post` directs comme pour les LEDs), commandes WS
-`livebox/ptf[/add|/delete]`, données rafraîchies à chaque cycle du
-coordinator dans `coordinator.data["ptf"]`.
+**DMZ / réponse au ping / DynDNS** (onglet "Administration" → Avancé) :
+gestion complète et plus seulement affichage. DMZ = liste d'entrées
+identifiées (`Firewall:getDMZ/setDMZ/deleteDMZ`, identifiant `webui` comme
+l'interface Orange ; commandes `livebox/dmz`, `livebox/dmz/set`,
+`livebox/dmz/delete`), réponse au ping IPv4/IPv6 sur le WAN
+(`livebox/ping_response[/set]`), ajout/suppression d'hôtes DynDNS avec la
+liste des fournisseurs de la box (`livebox/ddns/services`). Ces mutations
+appellent aiosysbus directement plutôt que `coordinator._make_request`, qui
+avale les erreurs Livebox (le panel affichait sinon « succès » même en cas de
+refus) — à privilégier pour toute nouvelle commande d'écriture.
+
+**Redirection de protocole (PTF)** — section dédiée dans l'onglet "Réseau"
+sous le NAT, `Firewall:getProtocolForwarding` / `setProtocolForwarding` /
+`deleteProtocolForwarding` (appels `_auth.post` directs), commandes WS
+`livebox/ptf[/add|/delete]`, cache `coordinator.data["ptf"]`. ⚠️ Ce n'est
+**pas** du port triggering : la Livebox redirige un **protocole IP entier**
+(GRE 47, ESP 50, AH 51…) vers une IP, sans ports — `destinationIPAddress`
+est obligatoire (vérifié sur Livebox 6, cf. `save_ipv4_ptf_rule` de
+LiveboxMonitor). L'ancienne version à plages de ports ne pouvait pas marcher.
+
+**Pare-feu IPv6 (pinholes)** — section sous la redirection de protocole
+(onglet "Réseau") : `Firewall:getPinhole/setPinhole/deletePinhole`, commandes
+`livebox/ipv6/pinholes`, `livebox/ipv6/pinhole/add|delete`. Une règle ouvre
+un port (ou une plage) vers une IPv6 précise ; la box préfixe l'identifiant
+par l'origine (`webui_<nom>`), à repasser tel quel à `deletePinhole`. Le
+formulaire propose les appareils actifs ayant une IPv6 globale (`ipv6` dans
+`livebox/devices`). Testé sur Livebox 6 avec `2001:db8::/32` (plage de
+documentation, jamais routée).
+
+**Pièges de l'API vérifiés sur la box (2026-11-16, tests `scripts/live-tests/`)** :
+- Protocoles NAT/PTF en **numéros IANA** (`"6"`, `"17"`, `"6,17"`) : la box
+  refuse `"TCP"` (« Invalid parameter: protocol »). `_protocol_numbers()`
+  convertit ce qu'envoie le panel.
+- LEDs : `Brightness` sur **0-255** ; le panel raisonne en % (`_led_percent`).
+- `SpeedTest:getWANResults` : débits en **kbit/s**. `PowerManagement.Power`
+  en **mW**. `getProfiles` renvoie un dict.
+- Beaucoup d'objets (`Time:*`, `NMC.OrangeTV:*`) répondent dans `data` et non
+  `status` (`_payload()` dans le coordinator).
+- Un objet absent du modèle (`NMC.ServiceEligibility.DSLITE` sur Livebox 6)
+  fait lever aiosysbus : toujours `asyncio.gather(..., return_exceptions=True)`
+  quand on groupe des appels optionnels.
+- Ne jamais nommer un paramètre WS `id` : c'est le numéro de message de
+  l'enveloppe WebSocket HA, il écrase la valeur (testé dans
+  `test_static_consistency.py`).
+- Après une écriture, `_refresh_cached()` relit la donnée concernée :
+  `async_request_refresh` est temporisé (10 s) et laissait la liste périmée.
+- L'onglet Appareils lit `coordinator.data["all_devices"]` (Wi-Fi + filaires) :
+  les options de suivi ne concernent que les entités `device_tracker`.
+
+**Entités ajoutées (2026-11-16)** : `event.<box>_evenements_reseau`
+(`event.py`, relaie `oralink_device_event` — `event_type` new/connected/
+disconnected, attributs mac/name/ip — utilisable comme déclencheur dans
+l'éditeur d'automatisations) et capteurs `Speedtest Download/Upload/Latency`
+(dernier test mémorisé par la box, `coordinator.data["speedtest"]`). L'onglet
+Appareils a une recherche, un filtre Tous/Actifs/Wi-Fi/Filaires et un export
+CSV (séparateur `;`, BOM UTF-8 pour Excel).
 
 **Nettoyage panel-src (2026-07-12)** : 6 fichiers d'onglets
 (`dhcp-tab.jsx`, `nat-tab.jsx`, `network-tab.jsx`, `system-tab.jsx`,
@@ -178,6 +273,12 @@ compris les switchs et rattachements — était purement `localStorage` côté
 navigateur), Oralink persiste tout côté serveur dans `TopologyStore`
 (`livebox/topology/{positions,switches,parents}*`), donc partagé entre tous
 les onglets/utilisateurs et indépendant du navigateur.
+
+**Droits** : toutes les commandes WS qui modifient la box ou un état
+persistant portent `@websocket_api.require_admin` (le panel reste visible
+pour les non-admins, en lecture). Seules exceptions : `livebox/refresh`,
+`livebox/device/wake` et `livebox/tvdecoders/key`. Toute nouvelle commande
+d'écriture doit suivre cette règle.
 
 Pour chaque ajout, le pattern à suivre est celui des onglets existants : une
 ou plusieurs commandes `ws_get_*`/`ws_*_set` dans `panel.py` (suivant le

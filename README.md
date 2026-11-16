@@ -27,6 +27,17 @@ mais ça duplique les appareils/entités pour la même box. Si tu migres depuis
 depuis zéro (nouveaux `entity_id`, anciennes automatisations/tableaux de bord
 à mettre à jour).
 
+## Notification « nouvel appareil sur le réseau »
+
+Oralink publie une entité `event.<box>_evenements_reseau` (nouvel appareil,
+connexion, déconnexion). Un blueprint prêt à l'emploi envoie une notification
+quand un appareil jamais vu se connecte :
+
+[![Importer le blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FFrcJules%2FOralink%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Foralink%2Fnew_device_notification.yaml)
+
+(ou Paramètres → Automatisations → Blueprints → Importer, avec l'URL
+`https://github.com/FrcJules/Oralink/blob/master/blueprints/automation/oralink/new_device_notification.yaml`).
+
 ## Structure du repo
 
 ```
