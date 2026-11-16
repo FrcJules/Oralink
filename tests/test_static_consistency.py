@@ -148,3 +148,13 @@ def test_led_percent():
     assert led({"Brightness": 32}) == 13
     assert led({"Brightness": 0}) == 0
     assert led(None) is None
+
+
+def test_every_platform_has_a_module():
+    tree = ast.parse((COMPONENT / "const.py").read_text(encoding="utf-8"))
+    platforms = next(
+        ast.literal_eval(n.value) for n in tree.body
+        if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "PLATFORMS"
+    )
+    missing = [p for p in platforms if not (COMPONENT / f"{p}.py").is_file()]
+    assert missing == []

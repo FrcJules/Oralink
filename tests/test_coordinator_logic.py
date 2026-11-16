@@ -230,3 +230,26 @@ def test_iptv_reads_data_payload(coordinator):
     assert iptv["status"] == "Available"
     assert iptv["multi_screens"] is False
     assert iptv["config"]["channels"][0]["ChannelNumber"] == "840"
+
+
+def test_speedtest_kbit_to_mbit(coordinator):
+    async def post(obj, fn, conf=None):
+        return {"status": {"status": "Completed",
+                           "Downstream": {"rate": 1998148, "latency": 8, "end": "2026-10-28T12:57:24Z"},
+                           "Upstream": {"rate": 777179, "latency": 9, "end": "2026-10-28T12:57:27Z"}}}
+
+    coordinator.api = MagicMock()
+    coordinator.api._auth.post = post
+    st = asyncio.run(coordinator.async_get_speedtest())
+    assert st["downstream"]["rate_mbit"] == 1998.15
+    assert st["upstream"]["rate_mbit"] == 777.18
+    assert st["downstream"]["latency_ms"] == 8
+
+
+def test_speedtest_missing_object(coordinator):
+    async def post(obj, fn, conf=None):
+        raise RuntimeError("Object or parameter not found")
+
+    coordinator.api = MagicMock()
+    coordinator.api._auth.post = post
+    assert asyncio.run(coordinator.async_get_speedtest()) == {}

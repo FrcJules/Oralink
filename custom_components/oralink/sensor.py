@@ -86,6 +86,46 @@ def get_closure_value_fn(path: str) -> Callable[..., Any]:
 
 SENSOR_TYPES: Final[list[LiveboxSensorEntityDescription]] = [
     LiveboxSensorEntityDescription(
+        key="speedtest_down",
+        name="Speedtest Download",
+        icon=DOWNLOAD_ICON,
+        value_fn=lambda x: x.get("speedtest", {}).get("downstream", {}).get("rate_mbit"),
+        attrs={
+            "latency_ms": lambda x: x.get("speedtest", {}).get("downstream", {}).get("latency_ms"),
+            "tested_at": lambda x: x.get("speedtest", {}).get("downstream", {}).get("end"),
+        },
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DATA_RATE,
+        translation_key="speedtest_down",
+    ),
+    LiveboxSensorEntityDescription(
+        key="speedtest_up",
+        name="Speedtest Upload",
+        icon=UPLOAD_ICON,
+        value_fn=lambda x: x.get("speedtest", {}).get("upstream", {}).get("rate_mbit"),
+        attrs={
+            "latency_ms": lambda x: x.get("speedtest", {}).get("upstream", {}).get("latency_ms"),
+            "tested_at": lambda x: x.get("speedtest", {}).get("upstream", {}).get("end"),
+        },
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DATA_RATE,
+        translation_key="speedtest_up",
+    ),
+    LiveboxSensorEntityDescription(
+        key="speedtest_latency",
+        name="Speedtest Latency",
+        icon="mdi:timer-outline",
+        value_fn=lambda x: x.get("speedtest", {}).get("downstream", {}).get("latency_ms"),
+        native_unit_of_measurement=UnitOfTime.MILLISECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DURATION,
+        translation_key="speedtest_latency",
+    ),
+    LiveboxSensorEntityDescription(
         key="down",
         name="xDSL Download",
         icon=DOWNLOAD_ICON,

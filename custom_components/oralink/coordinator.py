@@ -244,6 +244,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "reboot_history": await self.async_get_reboot_history(),
                 "ping_response": await self.async_get_ping_response(),
                 "contacts": await self.async_get_contacts(),
+                "speedtest": await self.async_get_speedtest(),
             }
         except AiosysbusException as error:
             _LOGGER.error("Error while fetch data information: %s", error)
@@ -459,6 +460,32 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "work": by_type.get("WORK", ""),
             })
         return contacts
+
+    async def async_get_speedtest(self) -> dict[str, Any]:
+        """Derniers résultats du test de débit mémorisés par la box (SpeedTest:getWANResults).
+
+        Débits fournis en kbit/s (vérifié sur Livebox 6) → convertis en Mbit/s.
+        """
+        try:
+            raw = _payload(await self.api._auth.post("SpeedTest", "getWANResults", None))
+        except Exception as err:  # noqa: BLE001 — objet absent sur certains modèles
+            _LOGGER.debug("Could not fetch speedtest results: %s", err)
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+
+        def _direction(key: str) -> dict[str, Any]:
+            d = raw.get(key) or raw.get(key.lower()) or {}
+            rate = d.get("rate") if isinstance(d, dict) else None
+            if not isinstance(rate, (int, float)) or rate <= 0:
+                return {}
+            return {
+                "rate_mbit": round(rate / 1000, 2),
+                "latency_ms": d.get("latency"),
+                "end": d.get("end"),
+            }
+
+        return {"downstream": _direction("Downstream"), "upstream": _direction("Upstream")}
 
     async def async_get_dsl_status(self) -> dict[str, Any]:
         """Get dsl status."""

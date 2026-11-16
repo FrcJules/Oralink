@@ -223,6 +223,14 @@ LiveboxMonitor). L'ancienne version à plages de ports ne pouvait pas marcher.
 - L'onglet Appareils lit `coordinator.data["all_devices"]` (Wi-Fi + filaires) :
   les options de suivi ne concernent que les entités `device_tracker`.
 
+**Entités ajoutées (2026-11-16)** : `event.<box>_evenements_reseau`
+(`event.py`, relaie `oralink_device_event` — `event_type` new/connected/
+disconnected, attributs mac/name/ip — utilisable comme déclencheur dans
+l'éditeur d'automatisations) et capteurs `Speedtest Download/Upload/Latency`
+(dernier test mémorisé par la box, `coordinator.data["speedtest"]`). L'onglet
+Appareils a une recherche, un filtre Tous/Actifs/Wi-Fi/Filaires et un export
+CSV (séparateur `;`, BOM UTF-8 pour Excel).
+
 **Nettoyage panel-src (2026-07-12)** : 6 fichiers d'onglets
 (`dhcp-tab.jsx`, `nat-tab.jsx`, `network-tab.jsx`, `system-tab.jsx`,
 `diagnostics-tab.jsx`, `advanced-tab.jsx`) n'étaient plus importés dans

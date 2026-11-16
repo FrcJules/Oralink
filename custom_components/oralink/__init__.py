@@ -27,7 +27,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 _LOGGER = logging.getLogger(__name__)
 
 
-_PANEL_BUILD = "b83"  # bump whenever the JS bundle changes
+_PANEL_BUILD = "b84"  # bump whenever the JS bundle changes
 
 
 def _read_manifest_version() -> str:
