@@ -44,10 +44,21 @@ const hasSvgCount = (sel) => page.evaluate((sel) => {
 await page.goto(HA + "/oralink", { waitUntil: "networkidle", timeout: 60000 });
 await page.waitForTimeout(4000);
 console.log("Vue d'ensemble :", (await panelText()).slice(0, 200));
-for (const [label, sel] of [["Topologie", ".react-flow__node"], ["Graphiques", ".recharts-surface"], ["Appareils", "tbody tr"], ["DHCP & NAT", "table"]]) {
+for (const [label, sel] of [["Topologie", ".react-flow__node"], ["Graphiques", ".recharts-surface"], ["Appareils", "tbody tr"], ["DHCP & NAT", "table"], ["Wifi", "form, button"]]) {
   const ok = await clickNav(label);
   await page.waitForTimeout(5000); await page.screenshot({ path: `tab_${label.replace(/[^a-z]/gi, "")}.png` });
   console.log(`${label.padEnd(12)} clic=${ok} éléments(${sel})=${await hasSvgCount(sel)} | ${(await panelText()).slice(0, 110)}`);
+}
+if (process.env.SECRET_CHECK) {
+  const full = await page.evaluate(() => {
+    const find = (root) => { const el = root.querySelector("livebox-panel"); if (el) return el;
+      for (const n of root.querySelectorAll("*")) if (n.shadowRoot) { const f = find(n.shadowRoot); if (f) return f; } return null; };
+    return find(document).shadowRoot.textContent;
+  });
+  const secrets = process.env.SECRET_CHECK.split("\n").filter(Boolean);
+  console.log("Wifi : carte config présente =", full.includes("Configuration des réseaux"),
+    "| mots de passe masqués =", full.includes("••••••••"),
+    "| mot de passe en clair visible =", secrets.some((x) => full.includes(x)));
 }
 await page.screenshot({ path: "panel_topology_check.png" });
 console.log("\nRequêtes panel :"); for (const r of [...new Set(requests)]) console.log("  " + r);
