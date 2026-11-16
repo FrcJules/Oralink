@@ -253,3 +253,36 @@ def test_speedtest_missing_object(coordinator):
     coordinator.api = MagicMock()
     coordinator.api._auth.post = post
     assert asyncio.run(coordinator.async_get_speedtest()) == {}
+
+
+def test_ntp_synced_livebox6_format(coordinator):
+    async def status(*_):
+        return {"status": None, "data": {"status": "Synchronized"}}
+
+    coordinator.api = MagicMock()
+    coordinator.api.time.async_get_status = status
+    assert asyncio.run(coordinator.async_get_ntp_synced()) is True
+
+
+def test_ntp_unsynced_and_legacy_flag(coordinator):
+    async def unsynced(*_):
+        return {"status": None, "data": {"status": "Unsynchronized"}}
+
+    async def legacy(*_):
+        return {"status": {"NTPSync": True}}
+
+    coordinator.api = MagicMock()
+    coordinator.api.time.async_get_status = unsynced
+    assert asyncio.run(coordinator.async_get_ntp_synced()) is False
+    coordinator.api.time.async_get_status = legacy
+    assert asyncio.run(coordinator.async_get_ntp_synced()) is True
+
+
+def test_latest_wan_rate_needs_two_points(coordinator):
+    c = coordinator
+    assert c._latest_wan_rate() == {"rx": None, "tx": None}
+    now = datetime.now(tz=TZ)
+    c._traffic_history.append(_point(now - timedelta(seconds=60), 0, 0))
+    asyncio.run(c._record_traffic_history({}, {"BytesReceived": 7_500_000, "BytesSent": 750_000}))
+    rate = c._latest_wan_rate()
+    assert rate["rx"] == pytest.approx(1.0, rel=0.05) and rate["tx"] == pytest.approx(0.1, rel=0.05)

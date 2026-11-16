@@ -49,6 +49,29 @@ for (const [label, sel] of [["Topologie", ".react-flow__node"], ["Graphiques", "
   await page.waitForTimeout(5000); await page.screenshot({ path: `tab_${label.replace(/[^a-z]/gi, "")}.png` });
   console.log(`${label.padEnd(12)} clic=${ok} éléments(${sel})=${await hasSvgCount(sel)} | ${(await panelText()).slice(0, 110)}`);
 }
+// Vue d'ensemble : carte « Qui consomme le plus » ; Wifi : QR code
+await clickNav("Vue d'ensemble"); await page.waitForTimeout(12000);
+const top = await page.evaluate(() => {
+  const find = (root) => { const el = root.querySelector("livebox-panel"); if (el) return el;
+    for (const n of root.querySelectorAll("*")) if (n.shadowRoot) { const f = find(n.shadowRoot); if (f) return f; } return null; };
+  const sr = find(document).shadowRoot;
+  const card = [...sr.querySelectorAll("h2, h3, div")].find((e) => e.textContent.trim().startsWith("Qui consomme le plus"));
+  return card ? `${card.closest("section, div")?.querySelectorAll("li").length ?? 0} appareils listés` : "carte absente";
+});
+console.log("Top conso :", top);
+await page.screenshot({ path: "tab_overview.png" });
+await clickNav("Wifi"); await page.waitForTimeout(5000);
+const qr = await page.evaluate(() => {
+  const find = (root) => { const el = root.querySelector("livebox-panel"); if (el) return el;
+    for (const n of root.querySelectorAll("*")) if (n.shadowRoot) { const f = find(n.shadowRoot); if (f) return f; } return null; };
+  const sr = find(document).shadowRoot;
+  const btn = [...sr.querySelectorAll("button")].find((b) => b.textContent.includes("QR code"));
+  if (!btn) return "bouton absent";
+  btn.click();
+  return new Promise((ok) => setTimeout(() => ok(`SVG affiché : ${sr.querySelectorAll("svg[viewBox]").length > 0 && !!sr.querySelector(".size-44 svg")}`), 600));
+});
+console.log("QR Wi-Fi :", qr);
+await page.screenshot({ path: "tab_wifi_qr.png" });
 // Pré-remplissage du bail statique depuis un bail dynamique (« → IP fixe »)
 await clickNav("DHCP & NAT"); await page.waitForTimeout(4000);
 const prefill = await page.evaluate(() => {

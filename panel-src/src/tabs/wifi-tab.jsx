@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Eye, EyeOff, KeyRound, Settings, Wifi, WifiOff } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, KeyRound, QrCode, Settings, Wifi, WifiOff } from "lucide-react";
+import { wifiQrSvg } from "../lib/wifi-qr.js";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { useDeviceNames } from "../lib/use-device-names.js";
@@ -335,6 +336,7 @@ function WifiNetworkRow({ net, onSaved }) {
   const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
@@ -394,10 +396,27 @@ function WifiNetworkRow({ net, onSaved }) {
         )}
         {!net.broadcast && <Badge orange>masqué</Badge>}
         {net.wps && <Badge blue>WPS</Badge>}
-        <button onClick={editing ? () => setEditing(false) : start} className="ml-auto lb-link text-xs hover:underline">
+        <button onClick={() => setShowQr((v) => !v)} className="ml-auto inline-flex items-center gap-1 lb-link text-xs hover:underline"
+          title="QR code pour rejoindre ce réseau">
+          <QrCode className="size-3.5" /> {showQr ? "Masquer" : "QR code"}
+        </button>
+        <button onClick={editing ? () => setEditing(false) : start} className="lb-link text-xs hover:underline">
           {editing ? "Annuler" : "Modifier"}
         </button>
       </div>
+      {showQr && (
+        <div className="mt-2 flex flex-wrap items-center gap-4 rounded-lg border lb-border p-3">
+          {/* SVG généré localement par uqr : SSID et mot de passe sont encodés
+              dans les modules du QR, jamais insérés comme texte. */}
+          <div className="size-44 rounded bg-white p-1 [&>svg]:size-full"
+            dangerouslySetInnerHTML={{ __html: wifiQrSvg(net) }} />
+          <div className="text-xs lb-text-muted">
+            <p className="font-medium lb-text">{net.ssid}</p>
+            <p>Scannez avec l'appareil photo du téléphone pour rejoindre le réseau.</p>
+            {!net.enabled && <p className="mt-1 text-amber-600">Ce réseau est actuellement désactivé.</p>}
+          </div>
+        </div>
+      )}
       {editing && form && (
         <form onSubmit={handleSave} className="mt-2 grid gap-2 rounded-lg border lb-border p-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-xs lb-text-muted">

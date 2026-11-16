@@ -160,6 +160,12 @@
       "wan_ip": {
         "name": "WAN IP Address"
       },
+      "wan_rate_rx": {
+        "name": "WAN download rate"
+      },
+      "wan_rate_tx": {
+        "name": "WAN upload rate"
+      },
       "wan_total_rx": {
         "name": "WAN Total Received"
       },

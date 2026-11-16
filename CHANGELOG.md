@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0 — 2026-11-16
+
+### Nouveautés
+- **QR code Wi-Fi** : bouton « QR code » sur chaque réseau (onglet Wifi →
+  Configuration des réseaux) pour rejoindre le Wi-Fi en scannant avec
+  l'appareil photo — pratique pour le Wi-Fi invité. Généré localement.
+- **« Qui consomme le plus en ce moment »** : carte sur la vue d'ensemble,
+  débit par appareil rafraîchi toutes les 10 s.
+- Capteurs **Débit WAN descendant / montant** (Mbit/s), calculés depuis les
+  compteurs de la fibre : les statistiques d'interface de la box restent à 0
+  sur Livebox 6, il n'existait donc aucun débit Internet exploitable dans HA.
+
+### Corrections
+- **NTP synchronisé** restait à « non » sur Livebox 6 (format de réponse).
+- **Appareils Ethernet** affichait 0 sans suivi LAN ; les compteurs Wi-Fi /
+  Ethernet comptent désormais les appareils connectés, quelles que soient les
+  options de suivi.
+- Puissance d'émission Wi-Fi « -1 % » affichée « auto ».
+
+### Développement
+- Tests JavaScript (`npm test` dans `panel-src`, lanceur intégré de Node).
+
 ## 1.1.0 — 2026-11-16
 
 Audit complet sur une Livebox 6 réelle (firmware SG60 G07.R05) : chaque

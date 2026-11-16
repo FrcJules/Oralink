@@ -89,6 +89,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self._topology_cache_at: datetime | None = None
         self._topology_last_update: str | None = None
         self._all_devices: dict[str, Any] = {}
+        self._active_counts: dict[str, int] = {"wifi": 0, "eth": 0}
 
         # Rolling in-memory history for the "Graphiques" tab (~12h at 1 update/min)
         self._traffic_history: deque[dict[str, Any]] = deque(maxlen=720)
@@ -202,8 +203,9 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "wan_status": await self.async_get_wan_status(),
                 "wifi": await self.async_is_wifi(),
                 "guest_wifi": await self.async_is_guest_wifi(),
-                "count_wired_devices": device_counters["wired"],
-                "count_wireless_devices": device_counters["wireless"],
+                "count_wired_devices": self._active_counts["eth"],
+                "count_wireless_devices": self._active_counts["wifi"],
+                "wan_rate": self._latest_wan_rate(),
                 "count_devices_24ghz": sum(
                     1 for d in devices.values()
                     if d.get("Active") and d.get("OperatingFrequencyBand") == "2.4GHz"
@@ -295,6 +297,14 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             for group in ("wifi", "eth")
             for device in devices.get(group, []) or []
             if isinstance(device, dict) and device.get("Key")
+        }
+        # Appareils connectés par type, quelles que soient les options de suivi
+        # (le capteur « Appareils Ethernet » restait à 0 sans suivi LAN).
+        self._active_counts = {
+            group: sum(
+                1 for d in devices.get(group, []) or [] if isinstance(d, dict) and d.get("Active")
+            )
+            for group in ("wifi", "eth")
         }
         if wifi_tracking:
             device_counters["wireless"] = len(devices.get("wifi", {}))
@@ -848,6 +858,13 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
 
         self.traffic_history_store.async_schedule_save(list(self._traffic_history))
 
+    def _latest_wan_rate(self) -> dict[str, float | None]:
+        """Dernier débit WAN calculé (Mbit/s), None tant qu'il n'y a pas 2 points."""
+        if len(self._traffic_history) < 2:
+            return {"rx": None, "tx": None}
+        last = self._traffic_history[-1]
+        return {"rx": last.get("wan_rate_rx"), "tx": last.get("wan_rate_tx")}
+
     @property
     def event_log(self) -> list[dict[str, Any]]:
         """Recent connection/disconnection/new-device events (most recent first)."""
@@ -1102,7 +1119,13 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         """Return True if the router NTP clock is synchronised."""
         raw = await self._make_request(self.api.time.async_get_status)
         status = raw.get("status") or raw.get("data") or {}
-        return bool(status.get("NTPSync", False))
+        if not isinstance(status, dict):
+            return False
+        # Livebox 6 : {"status": null, "data": {"status": "Synchronized"}} — pas
+        # de clé NTPSync (le capteur restait à « non synchronisé »).
+        if "NTPSync" in status:
+            return bool(status["NTPSync"])
+        return str(status.get("status", "")).lower() == "synchronized"
 
     async def async_get_cgnat_active(self) -> bool:
         """Return True if CG-NAT (DS-Lite / Demand) is active on this line."""

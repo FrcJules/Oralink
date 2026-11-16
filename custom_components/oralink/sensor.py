@@ -86,6 +86,28 @@ def get_closure_value_fn(path: str) -> Callable[..., Any]:
 
 SENSOR_TYPES: Final[list[LiveboxSensorEntityDescription]] = [
     LiveboxSensorEntityDescription(
+        key="wan_rate_rx",
+        icon=DOWNLOAD_ICON,
+        # Calculé par Oralink depuis les compteurs d'octets WAN (veip0) : les
+        # statistiques d'interface de la box restent à 0 sur Livebox 6.
+        value_fn=lambda x: (x.get("wan_rate") or {}).get("rx"),
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DATA_RATE,
+        translation_key="wan_rate_rx",
+    ),
+    LiveboxSensorEntityDescription(
+        key="wan_rate_tx",
+        icon=UPLOAD_ICON,
+        value_fn=lambda x: (x.get("wan_rate") or {}).get("tx"),
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.DATA_RATE,
+        translation_key="wan_rate_tx",
+    ),
+    LiveboxSensorEntityDescription(
         key="speedtest_down",
         icon=DOWNLOAD_ICON,
         value_fn=lambda x: x.get("speedtest", {}).get("downstream", {}).get("rate_mbit"),
