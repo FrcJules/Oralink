@@ -33,5 +33,187 @@
         }
       }
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "callmissed": {
+        "name": "Appel manqué"
+      },
+      "cgnat_active": {
+        "name": "CG-NAT actif"
+      },
+      "connectivity": {
+        "name": "État WAN"
+      },
+      "ddns": {
+        "name": "DNS dynamique ({service})"
+      },
+      "ipv6_active": {
+        "name": "IPv6 actif"
+      },
+      "ntp_synced": {
+        "name": "NTP synchronisé"
+      },
+      "onu_state": {
+        "name": "État ONU"
+      },
+      "remote_access": {
+        "name": "Accès distant"
+      },
+      "wan_error": {
+        "name": "Erreur de connexion WAN"
+      }
+    },
+    "button": {
+      "cmissed_clear_btn": {
+        "name": "Effacer les appels"
+      },
+      "restart_btn": {
+        "name": "Redémarrer la Livebox"
+      },
+      "ring_btn": {
+        "name": "Faire sonner le téléphone"
+      }
+    },
+    "sensor": {
+      "callers": {
+        "name": "Appels"
+      },
+      "device_rate_rx": {
+        "name": "Débit ↓"
+      },
+      "device_rate_tx": {
+        "name": "Débit ↑"
+      },
+      "device_signal": {
+        "name": "Signal Wi-Fi"
+      },
+      "dhcp_leases": {
+        "name": "Baux DHCP"
+      },
+      "dhcp_static_leases": {
+        "name": "Baux DHCP statiques"
+      },
+      "down_rate": {
+        "name": "xDSL descendant"
+      },
+      "fiber_bias": {
+        "name": "Fibre courant de polarisation"
+      },
+      "fiber_downstream_maxrate": {
+        "name": "GPON débit max descendant"
+      },
+      "fiber_power_rx": {
+        "name": "Fibre puissance reçue"
+      },
+      "fiber_power_tx": {
+        "name": "Fibre puissance émise"
+      },
+      "fiber_rx": {
+        "name": "Fibre reçu"
+      },
+      "fiber_temperature": {
+        "name": "Fibre température"
+      },
+      "fiber_tx": {
+        "name": "Fibre envoyé"
+      },
+      "fiber_upstream_maxrate": {
+        "name": "GPON débit max montant"
+      },
+      "fiber_voltage": {
+        "name": "Fibre tension"
+      },
+      "guest_dhcp_leases": {
+        "name": "Baux DHCP invités"
+      },
+      "interface_rate_rx": {
+        "name": "{interface} débit reçu"
+      },
+      "interface_rate_tx": {
+        "name": "{interface} débit envoyé"
+      },
+      "memory_free": {
+        "name": "Mémoire libre"
+      },
+      "repeaters": {
+        "name": "Répéteurs"
+      },
+      "speedtest_down": {
+        "name": "Speedtest descendant"
+      },
+      "speedtest_latency": {
+        "name": "Speedtest latence"
+      },
+      "speedtest_up": {
+        "name": "Speedtest montant"
+      },
+      "up_rate": {
+        "name": "xDSL montant"
+      },
+      "upnp": {
+        "name": "Redirections de ports"
+      },
+      "uptime": {
+        "name": "Durée de fonctionnement"
+      },
+      "wan_ip": {
+        "name": "Adresse IP WAN"
+      },
+      "wan_total_rx": {
+        "name": "WAN total reçu"
+      },
+      "wan_total_tx": {
+        "name": "WAN total envoyé"
+      },
+      "wifi_clients_24ghz": {
+        "name": "Clients Wi-Fi 2,4 GHz"
+      },
+      "wifi_clients_5ghz": {
+        "name": "Clients Wi-Fi 5 GHz"
+      },
+      "wifi_clients_6ghz": {
+        "name": "Clients Wi-Fi 6 GHz"
+      },
+      "wifi_rx": {
+        "name": "Wi-Fi reçu"
+      },
+      "wifi_tx": {
+        "name": "Wi-Fi envoyé"
+      },
+      "wired_devices": {
+        "name": "Appareils Ethernet"
+      },
+      "wireless_devices": {
+        "name": "Appareils Wi-Fi"
+      }
+    },
+    "switch": {
+      "guest_wifi": {
+        "name": "Wi-Fi invité"
+      },
+      "wifi_switch": {
+        "name": "Wi-Fi"
+      }
+    },
+    "select": {
+      "firewall_level": {
+        "name": "Niveau du pare-feu"
+      }
+    },
+    "event": {
+      "device_events": {
+        "name": "Événements réseau",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new": "Nouvel appareil",
+              "connected": "Connexion",
+              "disconnected": "Déconnexion"
+            }
+          }
+        }
+      }
+    }
   }
 }

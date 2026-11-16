@@ -9,6 +9,7 @@ Ces tests ont été ajoutés après avoir trouvé :
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 from pathlib import Path
@@ -213,3 +214,38 @@ def test_wifi_networks_from_mibs():
     (net,) = parse("lan", mibs)
     assert net["band"] == "5GHz" and net["enabled"] and net["ssid"] == "Box_5G"
     assert net["security_modes"] == ["None", "WPA2-Personal"] and net["password"] == "secret123"
+
+
+def _static_translation_keys():
+    """(plateforme, clé) des traductions utilisées par le code + noms codés en dur."""
+    keys, hardcoded = set(), []
+    for file in COMPONENT.glob("*.py"):
+        platform = file.stem
+        tree = ast.parse(file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", "")).endswith("EntityDescription"):
+                kw = {k.arg: k.value for k in node.keywords}
+                tk = kw.get("translation_key")
+                if isinstance(tk, ast.JoinedStr):
+                    hardcoded.append(f"{file.name}:{node.lineno} clé de traduction dynamique (f-string)")
+                if isinstance(tk, ast.Constant):
+                    keys.add((platform, tk.value))
+                    if isinstance(kw.get("name"), ast.Constant):
+                        hardcoded.append(f"{file.name}:{node.lineno} {tk.value}")
+            if isinstance(node, ast.Assign) and any(
+                getattr(t, "attr", getattr(t, "id", "")) == "_attr_translation_key" for t in node.targets
+            ):
+                if isinstance(node.value, ast.Constant):
+                    keys.add((platform, node.value.value))
+                elif isinstance(node.value, ast.JoinedStr):  # f"device_rate_{direction}"
+                    keys.update({(platform, "device_rate_rx"), (platform, "device_rate_tx")})
+    return keys, hardcoded
+
+
+def test_entity_translations_complete():
+    keys, hardcoded = _static_translation_keys()
+    assert hardcoded == [], "un name= codé en dur masque la traduction"
+    for lang in ("en", "fr"):
+        entity = json.loads((COMPONENT / "translations" / f"{lang}.json").read_text(encoding="utf-8"))["entity"]
+        missing = sorted(f"{p}.{k}" for p, k in keys if k not in entity.get(p, {}))
+        assert missing == [], f"{lang}: traductions manquantes {missing}"

@@ -33,5 +33,187 @@
         }
       }
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "callmissed": {
+        "name": "Call missed"
+      },
+      "cgnat_active": {
+        "name": "CG-NAT Active"
+      },
+      "connectivity": {
+        "name": "WAN Status"
+      },
+      "ddns": {
+        "name": "Dynamic DNS ({service})"
+      },
+      "ipv6_active": {
+        "name": "IPv6 Active"
+      },
+      "ntp_synced": {
+        "name": "NTP Synchronized"
+      },
+      "onu_state": {
+        "name": "ONU State"
+      },
+      "remote_access": {
+        "name": "Remote Access"
+      },
+      "wan_error": {
+        "name": "WAN Connection Error"
+      }
+    },
+    "button": {
+      "cmissed_clear_btn": {
+        "name": "Clear calls"
+      },
+      "restart_btn": {
+        "name": "Livebox restart"
+      },
+      "ring_btn": {
+        "name": "Ring your phone"
+      }
+    },
+    "sensor": {
+      "callers": {
+        "name": "Callers"
+      },
+      "device_rate_rx": {
+        "name": "Download rate"
+      },
+      "device_rate_tx": {
+        "name": "Upload rate"
+      },
+      "device_signal": {
+        "name": "WiFi signal"
+      },
+      "dhcp_leases": {
+        "name": "DHCP Leases"
+      },
+      "dhcp_static_leases": {
+        "name": "DHCP Static Leases"
+      },
+      "down_rate": {
+        "name": "xDSL Download"
+      },
+      "fiber_bias": {
+        "name": "Fiber Bias Current"
+      },
+      "fiber_downstream_maxrate": {
+        "name": "GPON Downstream Max Rate"
+      },
+      "fiber_power_rx": {
+        "name": "Fiber Power Rx"
+      },
+      "fiber_power_tx": {
+        "name": "Fiber Power Tx"
+      },
+      "fiber_rx": {
+        "name": "Fiber Rx"
+      },
+      "fiber_temperature": {
+        "name": "Fiber Temperature"
+      },
+      "fiber_tx": {
+        "name": "Fiber Tx"
+      },
+      "fiber_upstream_maxrate": {
+        "name": "GPON Upstream Max Rate"
+      },
+      "fiber_voltage": {
+        "name": "Fiber Voltage"
+      },
+      "guest_dhcp_leases": {
+        "name": "Guest DHCP Leases"
+      },
+      "interface_rate_rx": {
+        "name": "{interface} Rate Rx"
+      },
+      "interface_rate_tx": {
+        "name": "{interface} Rate Tx"
+      },
+      "memory_free": {
+        "name": "Memory Free"
+      },
+      "repeaters": {
+        "name": "Repeaters"
+      },
+      "speedtest_down": {
+        "name": "Speedtest Download"
+      },
+      "speedtest_latency": {
+        "name": "Speedtest Latency"
+      },
+      "speedtest_up": {
+        "name": "Speedtest Upload"
+      },
+      "up_rate": {
+        "name": "xDSL Upload"
+      },
+      "upnp": {
+        "name": "Ports forwarding"
+      },
+      "uptime": {
+        "name": "Uptime"
+      },
+      "wan_ip": {
+        "name": "WAN IP Address"
+      },
+      "wan_total_rx": {
+        "name": "WAN Total Received"
+      },
+      "wan_total_tx": {
+        "name": "WAN Total Sent"
+      },
+      "wifi_clients_24ghz": {
+        "name": "WiFi Clients 2.4 GHz"
+      },
+      "wifi_clients_5ghz": {
+        "name": "WiFi Clients 5 GHz"
+      },
+      "wifi_clients_6ghz": {
+        "name": "WiFi Clients 6 GHz"
+      },
+      "wifi_rx": {
+        "name": "Wifi Rx"
+      },
+      "wifi_tx": {
+        "name": "Wifi Tx"
+      },
+      "wired_devices": {
+        "name": "Ethernet Devices"
+      },
+      "wireless_devices": {
+        "name": "WiFi Devices"
+      }
+    },
+    "switch": {
+      "guest_wifi": {
+        "name": "Guest Wifi"
+      },
+      "wifi_switch": {
+        "name": "Wifi"
+      }
+    },
+    "select": {
+      "firewall_level": {
+        "name": "Firewall Level"
+      }
+    },
+    "event": {
+      "device_events": {
+        "name": "Network events",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new": "New device",
+              "connected": "Connected",
+              "disconnected": "Disconnected"
+            }
+          }
+        }
+      }
+    }
   }
 }

@@ -44,7 +44,7 @@ class LiveboxFirewallLevelSelect(LiveboxEntity, SelectEntity):
         """Initialize the select entity."""
         super().__init__(
             coordinator,
-            SelectEntityDescription(key="firewall_level", name="Firewall Level"),
+            SelectEntityDescription(key="firewall_level", translation_key="firewall_level"),
         )
 
     @property
