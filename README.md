@@ -1,3 +1,5 @@
+<p align="center"><img src="custom_components/oralink/brand/logo.png" alt="Oralink" height="96"></p>
+
 # Oralink
 
 Intégration **Home Assistant personnalisée pour les box Orange Livebox** : un
@@ -11,13 +13,19 @@ l'expérience d'Oralink de celle de
 [LiveboxMonitor](https://github.com/p-dor/LiveboxMonitor) (appli desktop de
 référence pour gérer une Livebox), directement intégrée à Home Assistant.
 
-## Installation via HACS
+## Installation
 
-1. HACS → menu (⋮) → **Dépôts personnalisés**.
-2. URL : `https://github.com/FrcJules/Oralink`, catégorie **Intégration**.
-3. Chercher **Oralink** dans HACS et l'installer.
-4. Redémarrer Home Assistant, puis ajouter l'intégration **Oralink**
-   depuis Paramètres → Appareils et services.
+Oralink s'installe comme **dépôt personnalisé** dans HACS / le Marketplace
+de Home Assistant (intégré à HA depuis 2026.11) :
+
+1. Ouvrir HACS (ou le Marketplace) → menu **⋮** → **Dépôts personnalisés**.
+2. URL : `https://github.com/FrcJules/Oralink`, type **Intégration** → Ajouter.
+3. Rechercher **Oralink**, l'installer, puis **redémarrer Home Assistant**.
+4. Ajouter l'intégration depuis Paramètres → Appareils et services
+   (la Livebox est aussi détectée automatiquement via SSDP).
+
+Mise à jour : HACS propose chaque nouvelle *release* GitHub ; redémarrer
+Home Assistant après la mise à jour (un rechargement ne suffit pas).
 
 ⚠️ Oralink utilise son propre domaine (`oralink`), distinct de `livebox`
 (`hass-livebox-component`, cyr-ius) — les deux peuvent techniquement coexister,
@@ -54,3 +62,10 @@ panel-src/                   # Source du panel web (React + Vite + Tailwind)
 
 Voir [CLAUDE.md](CLAUDE.md) pour l'architecture détaillée et le workflow de
 build du panel.
+
+## Licence
+
+MIT — voir [LICENSE](LICENSE). Oralink est dérivé de
+[hass-livebox-component](https://github.com/cyr-ius/hass-livebox-component)
+(MIT, © Antoine Colmard). « Orange » et « Livebox » sont des marques d'Orange ;
+Oralink est un projet indépendant, non affilié à Orange.

@@ -2050,6 +2050,12 @@ async def ws_remove_tv_decoder(hass, connection, msg):
         connection.send_error(msg["id"], "tv_decoder_remove_failed", str(err))
 
 
+def _looks_like_decoder(device: dict) -> bool:
+    """Appareil identifié par la Livebox comme décodeur TV Orange."""
+    tags = f" {device.get('Tags', '')} ".lower()
+    return "set-top" in str(device.get("DeviceType", "")).lower() or " stb " in tags
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command({vol.Required("type"): "livebox/tvdecoders/discover"})
 @websocket_api.async_response
@@ -2067,11 +2073,21 @@ async def ws_discover_tv_decoders(hass, connection, msg):
 
     session = async_get_clientsession(hass)
     known_macs = set(coordinator.tv_decoder_store.data)
-    candidates = [
-        (mac, device.get("Name") or mac, device.get("IPAddress"))
-        for mac, device in coordinator.data.get("devices", {}).items()
-        if device.get("Active") and device.get("IPAddress") and mac not in known_macs
-    ]
+    # Tous les appareils connus de la box (Wi-Fi ET filaires) : les décodeurs
+    # sont presque toujours en Ethernet, or coordinator.data["devices"] ne
+    # contient que les appareils suivis (Wi-Fi seuls sans suivi LAN) — la
+    # découverte ne trouvait donc jamais rien.
+    devices = coordinator.data.get("all_devices") or coordinator.data.get("devices", {})
+    candidates = sorted(
+        (
+            (mac, device.get("Name") or mac, device.get("IPAddress"))
+            for mac, device in devices.items()
+            if device.get("Active") and device.get("IPAddress") and mac not in known_macs
+        ),
+        # Ceux que la box identifie comme décodeurs (« Set-top Box », tag stb)
+        # en premier : utile si la liste est tronquée côté panel.
+        key=lambda c: not _looks_like_decoder(devices.get(c[0], {})),
+    )
 
     async def _check(mac, name, ip):
         if await tv_decoder_api.async_probe(session, ip) is not None:
