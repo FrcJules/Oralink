@@ -160,6 +160,12 @@
       "wan_ip": {
         "name": "Adresse IP WAN"
       },
+      "wan_rate_rx": {
+        "name": "Débit WAN descendant"
+      },
+      "wan_rate_tx": {
+        "name": "Débit WAN montant"
+      },
       "wan_total_rx": {
         "name": "WAN total reçu"
       },

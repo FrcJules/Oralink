@@ -87,6 +87,44 @@ function ConnectionStatusCard() {
   );
 }
 
+// ── Qui consomme le plus en ce moment ────────────────────────────────────────
+
+const fmtRate = (mbit) => (mbit == null ? "—"
+  : mbit >= 1 ? `${mbit.toFixed(1)} Mbit/s` : `${Math.round(mbit * 1000)} kbit/s`);
+
+function TopConsumersCard() {
+  const { data } = useWsData("livebox/devices", {}, 10_000);
+  const top = (data ?? [])
+    .filter((d) => d.active)
+    .map((d) => ({ ...d, total: (d.rate_rx ?? 0) + (d.rate_tx ?? 0) }))
+    .filter((d) => d.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 6);
+  const max = top[0]?.total ?? 0;
+  return (
+    <Card title="Qui consomme le plus en ce moment">
+      {data && top.length === 0 && <p className="text-sm lb-text-muted">Aucun trafic notable.</p>}
+      <ul className="space-y-2">
+        {top.map((d) => (
+          <li key={d.mac} className="text-sm">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate font-medium lb-text">{d.name}</span>
+              <span className="whitespace-nowrap text-xs tabular-nums lb-text-muted">
+                ↓ {fmtRate(d.rate_rx)} · ↑ {fmtRate(d.rate_tx)}
+              </span>
+            </div>
+            <div className="mt-1 h-1 w-full rounded-full bg-[var(--secondary-background-color)]">
+              <div className="h-full rounded-full bg-[var(--primary-color)]"
+                style={{ width: `${max ? Math.max(3, (d.total / max) * 100) : 0}%` }} />
+            </div>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-xs lb-text-muted">Débit moyen par appareil sur les 30 dernières secondes, rafraîchi toutes les 10 s.</p>
+    </Card>
+  );
+}
+
 export function OverviewTab() {
   const { data, loading, error } = useWsData("livebox/network", {}, 60_000);
   const { box, wan, fiber, services, memory } = data ?? {};
@@ -110,6 +148,8 @@ export function OverviewTab() {
           </div>
         </div>
       )}
+
+      <TopConsumersCard />
 
       {/* Box hardware */}
       <Card title="Box">
