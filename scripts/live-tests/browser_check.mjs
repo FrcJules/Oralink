@@ -44,11 +44,32 @@ const hasSvgCount = (sel) => page.evaluate((sel) => {
 await page.goto(HA + "/oralink", { waitUntil: "networkidle", timeout: 60000 });
 await page.waitForTimeout(4000);
 console.log("Vue d'ensemble :", (await panelText()).slice(0, 200));
-for (const [label, sel] of [["Topologie", ".react-flow__node"], ["Graphiques", ".recharts-surface"], ["Appareils", "tbody tr"], ["DHCP & NAT", "table"], ["Wifi", "form, button"]]) {
+console.log("Bandeau d'état :", await hasSvgCount(".lb-banner"), "| Détails techniques repliés :", await hasSvgCount("details.lb-details:not([open])"));
+await page.screenshot({ path: "tab_overview_top.png" });
+for (const [label, sel] of [
+  ["Appareils", ".lb-device-card"], ["DHCP & NAT", "table"], ["Topologie", ".react-flow__node"],
+  ["Wifi", "form, button"], ["Répéteurs", "button"], ["Graphiques", ".recharts-surface"],
+  ["Téléphone", "button"], ["Décodeurs TV", "button"], ["Administration", "button"], ["Événements", "button"],
+]) {
   const ok = await clickNav(label);
   await page.waitForTimeout(5000); await page.screenshot({ path: `tab_${label.replace(/[^a-z]/gi, "")}.png` });
   console.log(`${label.padEnd(12)} clic=${ok} éléments(${sel})=${await hasSvgCount(sel)} | ${(await panelText()).slice(0, 110)}`);
 }
+// Appareils : bascule vers la vue Liste (tableau conservé)
+await clickNav("Appareils"); await page.waitForTimeout(3000);
+await page.evaluate(() => {
+  const find = (root) => { const el = root.querySelector("livebox-panel"); if (el) return el;
+    for (const n of root.querySelectorAll("*")) if (n.shadowRoot) { const f = find(n.shadowRoot); if (f) return f; } return null; };
+  [...find(document).shadowRoot.querySelectorAll("button")].find((b) => b.textContent.trim() === "Liste")?.click();
+});
+await page.waitForTimeout(1500);
+console.log("Appareils (Liste) lignes :", await hasSvgCount("tbody tr"));
+await page.screenshot({ path: "tab_Appareils_liste.png" });
+await page.evaluate(() => {
+  const find = (root) => { const el = root.querySelector("livebox-panel"); if (el) return el;
+    for (const n of root.querySelectorAll("*")) if (n.shadowRoot) { const f = find(n.shadowRoot); if (f) return f; } return null; };
+  [...find(document).shadowRoot.querySelectorAll("button")].find((b) => b.textContent.trim() === "Cartes")?.click();
+});
 // Vue d'ensemble : carte « Qui consomme le plus » ; Wifi : QR code
 await clickNav("Vue d'ensemble"); await page.waitForTimeout(12000);
 const top = await page.evaluate(() => {
