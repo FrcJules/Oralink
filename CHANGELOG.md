@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.1 — 2026-11-16
+
+### Corrections
+- **Détection des décodeurs TV** : ne trouvait jamais rien, car seuls les
+  appareils Wi-Fi étaient sondés alors que les décodeurs Orange sont branchés
+  en Ethernet. Tous les appareils actifs sont désormais sondés (décodeurs
+  reconnus par la box en premier).
+
+### Divers
+- Nouveau **logo Oralink** original (remplace le logo Orange, marque déposée),
+  avec variantes pour le thème sombre.
+- Licence **MIT** (conserve la mention de hass-livebox-component, dont
+  Oralink est dérivé) ; vérifications automatiques HACS / hassfest / tests.
+
 ## 1.2.0 — 2026-11-16
 
 ### Nouveautés
