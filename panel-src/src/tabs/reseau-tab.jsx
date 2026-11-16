@@ -4,7 +4,7 @@
  *   • DHCP (statiques, dynamiques, Wifi invité)
  *   • NAT / redirection de ports
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
@@ -222,7 +222,8 @@ function DhcpSection() {
   const [prefill, setPrefill] = useState(null);
 
   const handleAddStatic = (lease) => {
-    setPrefill(lease);
+    // « nonce » : un nouveau clic sur le même bail rouvre aussi le formulaire.
+    setPrefill({ ...lease, nonce: Date.now() });
     // scroll to top of static card
     document.getElementById("dhcp-static-card")?.scrollIntoView({ behavior: "smooth" });
   };
@@ -236,11 +237,13 @@ function DhcpSection() {
             <p className="mb-3 text-xs lb-text-muted">
               Attribuez vous-même une adresse IP à votre équipement.
             </p>
+            {/* Remonté (key) à chaque pré-remplissage : l'état initial du
+                formulaire vient des props, sans effet qui recopie les props. */}
             <AddStaticFormControlled
+              key={prefill?.nonce ?? "empty"}
               dynamicLeases={data.dynamic}
               prefill={prefill}
-              onPrefillUsed={() => setPrefill(null)}
-              onSaved={refresh}
+              onSaved={() => { setPrefill(null); refresh(); }}
             />
             <StaticLeaseTable
               leases={data.static}
@@ -271,23 +274,13 @@ function DhcpSection() {
   );
 }
 
-function AddStaticFormControlled({ dynamicLeases, prefill, onPrefillUsed, onSaved }) {
+function AddStaticFormControlled({ dynamicLeases, prefill, onSaved }) {
   const runAction = useWsAction();
-  const [open, setOpen] = useState(false);
-  const [mac, setMac] = useState("");
-  const [ip, setIp] = useState("");
+  const [open, setOpen] = useState(!!prefill);
+  const [mac, setMac] = useState(prefill?.mac || "");
+  const [ip, setIp] = useState(prefill?.ip || "");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
-
-  // When parent pre-fills (from "→ IP fixe" button), open form and fill fields
-  useEffect(() => {
-    if (prefill) {
-      setMac(prefill.mac || "");
-      setIp(prefill.ip || "");
-      setOpen(true);
-      onPrefillUsed?.();
-    }
-  }, [prefill]);
 
   const selectDevice = (e) => {
     const val = e.target.value;

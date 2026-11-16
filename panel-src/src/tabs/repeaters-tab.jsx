@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { useConfirm } from "../lib/confirm-context.jsx";
@@ -62,31 +62,27 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
   const runAction = useWsAction();
   const confirm = useConfirm();
   const [info, setInfo] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [togglingWifi, setTogglingWifi] = useState(false);
   const [rebooting, setRebooting] = useState(false);
   const [resetting, setResetting] = useState(false);
 
-  const interrogate = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await runAction({ type: "livebox/repeater/info", key: repeaterKey }, {});
-      setInfo(result);
-    } catch (err) {
-      setError(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Aucun setState avant le premier await : appelée depuis l'effet ci-dessous,
+  // elle ne doit pas modifier l'état de façon synchrone.
+  const interrogate = useCallback(() =>
+    runAction({ type: "livebox/repeater/info", key: repeaterKey }, {})
+      .then((result) => { setInfo(result); setError(null); })
+      .catch((err) => setError(err))
+      .finally(() => setLoading(false)),
+  [runAction, repeaterKey]);
 
   // Auto-fetch on mount + periodic refresh every 2 min
   useEffect(() => {
     interrogate();
     const timer = setInterval(interrogate, 120_000);
     return () => clearInterval(timer);
-  }, [repeaterKey]);
+  }, [interrogate]);
 
   const toggleWifi = async (enable) => {
     setTogglingWifi(true);
@@ -245,7 +241,7 @@ export function RepeatersTab() {
       .then((result) => { if (result?.found?.length > 0) refresh(); })
       .catch(() => {})
       .finally(() => { scanInFlight.current = false; });
-  }, [data]);
+  }, [data, refresh, runAction]);
 
   // Which repeater each device is connected via — same API map + manual
   // overrides ("rattachement forcé") used by the topology graph, so a device

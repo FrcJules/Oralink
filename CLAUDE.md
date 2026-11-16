@@ -92,6 +92,15 @@ priorité aux navigateurs qui acceptent gzip. Un simple `cp` du bundle laisse
 l'ancien `.gz` en place → le navigateur continue de recevoir l'ancien panel
 alors que `curl` (sans gzip) montre le nouveau. Le script s'en charge.
 
+**Diagnostics** (`diagnostics.py`) : `TO_REDACT` masque les valeurs connues
+(mots de passe, n° de série, identifiants, IP publiques, numéros…) et
+`diagnostics_utils.pseudonymize_macs` remplace **toutes** les MAC (clés,
+valeurs, chaînes) par des pseudonymes stables `MAC_001`… — vérifié sur le vrai
+fichier téléchargé depuis HA : aucun secret de la box ni MAC réelle.
+
+**Lint du panel** : `npx eslint .` doit rester à 0 (règle react-refresh
+désactivée pour `src/lib` et `src/components/ui`, cf. `eslint.config.js`).
+
 **Tests** : `python3 -m pytest tests/ -q` — sans installer Home Assistant :
 - `test_coordinator_logic.py` : logique du coordinator (événements, débit
   WAN) avec des stubs des modules HA ;

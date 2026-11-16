@@ -100,7 +100,7 @@ function DeviceDetailDrawer({ device, onClose, onRenamed }) {
         setSchedule(result ?? {});
       } catch { setSchedule({}); } finally { setScheduleLoading(false); }
     })();
-  }, [device.mac]);
+  }, [device.mac, runAction]);
 
   const isBlocked = schedule?.scheduleInfo?.override === "Disable" && schedule?.scheduleInfo?.value === "Disable";
 

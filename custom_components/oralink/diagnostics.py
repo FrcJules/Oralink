@@ -10,6 +10,8 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .diagnostics_utils import pseudonymize_macs
+
 TO_REDACT = {
     "address",
     "Address",
@@ -53,6 +55,7 @@ TO_REDACT = {
     "IPv6DelegatedPrefix",
     "Key",
     "KeyPassPhrase",
+    "Master",
     "lastName",
     "LastName",
     "lat",
@@ -276,11 +279,11 @@ async def async_get_config_entry_diagnostics(
     if isinstance(lucky_address, dict) and lucky_address.get("status"):
         lucky_address["status"] = "**REDACTED**"
 
-    return {
+    return pseudonymize_macs({
         "entry": {
             "data": async_redact_data(entry.data, TO_REDACT),
             "options": async_redact_data(entry.options, TO_REDACT),
         },
         "data": async_redact_data(coordinator.data, TO_REDACT),
         "api_raw": async_redact_data(api_raw, TO_REDACT),
-    }
+    })

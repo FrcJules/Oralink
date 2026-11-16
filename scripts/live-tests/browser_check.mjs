@@ -49,6 +49,22 @@ for (const [label, sel] of [["Topologie", ".react-flow__node"], ["Graphiques", "
   await page.waitForTimeout(5000); await page.screenshot({ path: `tab_${label.replace(/[^a-z]/gi, "")}.png` });
   console.log(`${label.padEnd(12)} clic=${ok} éléments(${sel})=${await hasSvgCount(sel)} | ${(await panelText()).slice(0, 110)}`);
 }
+// Pré-remplissage du bail statique depuis un bail dynamique (« → IP fixe »)
+await clickNav("DHCP & NAT"); await page.waitForTimeout(4000);
+const prefill = await page.evaluate(() => {
+  const find = (root) => { const el = root.querySelector("livebox-panel"); if (el) return el;
+    for (const n of root.querySelectorAll("*")) if (n.shadowRoot) { const f = find(n.shadowRoot); if (f) return f; } return null; };
+  const sr = find(document).shadowRoot;
+  const btn = [...sr.querySelectorAll("button")].find((b) => b.textContent.includes("IP fixe"));
+  if (!btn) return "bouton introuvable";
+  const row = btn.closest("tr"); const mac = row?.textContent.match(/([0-9a-f]{2}:){5}[0-9a-f]{2}/i)?.[0];
+  btn.click();
+  return new Promise((ok) => setTimeout(() => {
+    const inputs = [...sr.querySelectorAll("input")].map((i) => i.value.toLowerCase());
+    ok(`MAC du bail ${mac} → formulaire pré-rempli : ${inputs.includes((mac || "").toLowerCase())}`);
+  }, 800));
+});
+console.log("DHCP :", prefill);
 if (process.env.SECRET_CHECK) {
   const full = await page.evaluate(() => {
     const find = (root) => { const el = root.querySelector("livebox-panel"); if (el) return el;
