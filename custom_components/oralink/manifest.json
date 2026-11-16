@@ -1,14 +1,27 @@
 {
   "domain": "oralink",
   "name": "Oralink",
-  "codeowners": ["@cyr-ius", "@FrcJules"],
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@cyr-ius",
+    "@FrcJules"
+  ],
   "config_flow": true,
-  "dependencies": ["ssdp"],
+  "dependencies": [
+    "http",
+    "ssdp"
+  ],
   "documentation": "https://github.com/FrcJules/Oralink",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/FrcJules/Oralink/issues",
-  "loggers": ["aiosysbus"],
-  "requirements": ["aiosysbus==1.2.4"],
+  "loggers": [
+    "aiosysbus"
+  ],
+  "requirements": [
+    "aiosysbus==1.2.4"
+  ],
   "ssdp": [
     {
       "st": "urn:schemas-upnp-org:device:InternetGatewayDevice:2",
