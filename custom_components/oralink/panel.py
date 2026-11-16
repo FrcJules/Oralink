@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import logging
 import time
+from datetime import timedelta
 from uuid import uuid4
 
 import aiohttp
@@ -12,10 +14,15 @@ import voluptuous as vol
 from aiosysbus import AIOSysbus
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
 from . import tv_decoder_api
 from .const import DOMAIN
+from .history_utils import downsample, merge_rate_series, parse_float
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def async_setup_panel(hass: HomeAssistant) -> None:
@@ -1842,37 +1849,105 @@ def ws_get_graphs(hass, connection, msg):
     connection.send_result(msg["id"], coordinator.traffic_history)
 
 
-@callback
+GRAPH_MAX_POINTS = 720
+
+
+def _recorder_device_series(hass, start, entity_ids):
+    """(Exécuteur) États des capteurs de débit depuis `start`, lus dans le recorder."""
+    from homeassistant.components.recorder import history  # noqa: PLC0415
+
+    return history.get_significant_states(
+        hass,
+        start,
+        None,
+        entity_ids,
+        include_start_time_state=True,
+        significant_changes_only=False,
+        minimal_response=False,
+        no_attributes=True,
+    )
+
+
 @websocket_api.websocket_command({
     vol.Required("type"): "livebox/graphs/device",
     vol.Required("mac"): str,
+    vol.Optional("hours", default=12): vol.All(vol.Coerce(int), vol.Range(min=1, max=168)),
 })
-def ws_get_graphs_device(hass, connection, msg):
-    """Historique de trafic par appareil (keyed by MAC, oldest first)."""
+@websocket_api.async_response
+async def ws_get_graphs_device(hass, connection, msg):
+    """Historique de débit d'un appareil.
+
+    Source principale : le recorder de Home Assistant, qui enregistre déjà les
+    capteurs « Débit ↓/↑ » de chaque appareil → historique persistant (survit
+    aux redémarrages) et consultable jusqu'à 7 jours. Repli sur l'historique
+    en mémoire du coordinator si le recorder est absent ou exclut ces capteurs.
+    """
     coordinator = _get_coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    connection.send_result(msg["id"], coordinator.get_device_history(msg["mac"]))
+    mac = msg["mac"]
+    device = (coordinator.data.get("all_devices") or {}).get(mac) or {}
+    key = device.get("Key") or mac
+    prefix = f"{coordinator.unique_id or DOMAIN}_device_{key}_rate_"
+    registry = er.async_get(hass)
+    entity_ids = {
+        direction: registry.async_get_entity_id("sensor", DOMAIN, prefix + direction)
+        for direction in ("rx", "tx")
+    }
+
+    if "recorder" in hass.config.components and all(entity_ids.values()):
+        from homeassistant.components.recorder import get_instance  # noqa: PLC0415
+
+        start = dt_util.utcnow() - timedelta(hours=msg["hours"])
+        try:
+            states = await get_instance(hass).async_add_executor_job(
+                _recorder_device_series, hass, start, list(entity_ids.values())
+            )
+        except Exception as err:  # noqa: BLE001 — repli sur la mémoire
+            _LOGGER.debug("Recorder history unavailable for %s: %s", mac, err)
+        else:
+            series = {
+                direction: [
+                    (max(st.last_updated, start), parse_float(st.state))
+                    for st in states.get(entity_id, [])
+                ]
+                for direction, entity_id in entity_ids.items()
+            }
+            points = downsample(merge_rate_series(series["rx"], series["tx"]), GRAPH_MAX_POINTS)
+            connection.send_result(msg["id"], {"source": "recorder", "hours": msg["hours"], "points": points})
+            return
+
+    connection.send_result(msg["id"], {
+        "source": "memory",
+        "hours": 12,
+        "points": coordinator.get_device_history(mac),
+    })
 
 
 @callback
 @websocket_api.websocket_command({vol.Required("type"): "livebox/graphs/devices"})
 def ws_get_graphs_device_list(hass, connection, msg):
-    """Liste des appareils pour lesquels un historique de trafic est disponible."""
+    """Appareils proposés dans le graphique : tous ceux connus de la box.
+
+    Avec le recorder, chaque appareil a un historique (capteurs de débit), pas
+    seulement ceux ayant eu du trafic depuis le dernier redémarrage.
+    """
     coordinator = _get_coordinator(hass)
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    devices = coordinator.data.get("devices", {})
-    result = []
-    for mac in coordinator.device_history_keys:
-        d = devices.get(mac, {})
-        result.append({
+    devices = coordinator.data.get("all_devices") or coordinator.data.get("devices", {})
+    macs = set(devices) | set(coordinator.device_history_keys)
+    result = [
+        {
             "mac": mac,
-            "name": d.get("Name", mac),
-        })
-    result.sort(key=lambda x: x["name"].lower())
+            "name": (devices.get(mac) or {}).get("Name") or mac,
+            "active": bool((devices.get(mac) or {}).get("Active")),
+        }
+        for mac in macs
+    ]
+    result.sort(key=lambda x: (not x["active"], x["name"].lower()))
     connection.send_result(msg["id"], result)
 
 

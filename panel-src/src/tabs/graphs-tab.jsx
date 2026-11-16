@@ -11,6 +11,22 @@ function timeLabel(value) {
   return m ? `${m[1]}:${m[2]}` : String(value);
 }
 
+/** Libellé en heure locale ; avec le jour quand la période dépasse 24 h. */
+function localLabel(value, withDay) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return timeLabel(value);
+  return date.toLocaleString("fr-FR", withDay
+    ? { weekday: "short", hour: "2-digit", minute: "2-digit" }
+    : { hour: "2-digit", minute: "2-digit" });
+}
+
+const PERIODS = [
+  { hours: 1, label: "1 h" },
+  { hours: 12, label: "12 h" },
+  { hours: 24, label: "24 h" },
+  { hours: 168, label: "7 j" },
+];
+
 function RateBar({ label, rate, color, max }) {
   const pct = max > 0 ? Math.min(100, (rate / max) * 100) : 0;
   return (
@@ -111,46 +127,38 @@ export function GraphsTab() {
   const callWs = useWsCommand();
 
   const [selectedMac, setSelectedMac] = useState("");
+  const [hours, setHours] = useState(12);
   const [deviceHistory, setDeviceHistory] = useState(null);
   const [devLoading, setDevLoading] = useState(false);
 
-  const handleDeviceChange = useCallback(async (mac) => {
+  const loadDevice = useCallback(async (mac, period) => {
     setSelectedMac(mac);
+    setHours(period);
     if (!mac) {
       setDeviceHistory(null);
       return;
     }
     setDevLoading(true);
     try {
-      const pts = await callWs({ type: "livebox/graphs/device", mac });
-      setDeviceHistory(pts ?? []);
+      const res = await callWs({ type: "livebox/graphs/device", mac, hours: period });
+      // Ancien format (liste) toléré pour compatibilité
+      setDeviceHistory(Array.isArray(res) ? { source: "memory", points: res } : res);
     } catch {
-      setDeviceHistory([]);
+      setDeviceHistory({ source: "memory", points: [] });
     } finally {
       setDevLoading(false);
     }
   }, [callWs]);
 
-  // Merge device history into points if a device is selected
-  const buildPoints = () => {
-    const global = (globalData ?? []).map((p) => ({ ...p, label: timeLabel(p.time) }));
-    if (!selectedMac || !deviceHistory) return global;
-
-    // Index device history by truncated time (HH:MM) for approximate merge
-    const devByLabel = {};
-    for (const p of deviceHistory) {
-      const lbl = timeLabel(p.time);
-      devByLabel[lbl] = p;
-    }
-    return global.map((p) => {
-      const dev = devByLabel[p.label];
-      return dev
-        ? { ...p, dev_rate_rx: dev.rate_rx, dev_rate_tx: dev.rate_tx }
-        : p;
-    });
-  };
-
-  const points = buildPoints();
+  // Appareil sélectionné : sa propre série (recorder HA, jusqu'à 7 jours).
+  // Sinon : courbe WAN globale en mémoire (~12 h).
+  const points = selectedMac && deviceHistory
+    ? (deviceHistory.points ?? []).map((p) => ({
+        label: localLabel(p.time, (deviceHistory.hours ?? 12) > 24),
+        dev_rate_rx: p.rate_rx,
+        dev_rate_tx: p.rate_tx,
+      }))
+    : (globalData ?? []).map((p) => ({ ...p, label: timeLabel(p.time) }));
   const hasWan = !selectedMac && points.some((p) => (p.wan_rate_rx ?? 0) > 0 || (p.wan_rate_tx ?? 0) > 0);
   const hasDevice = !selectedMac && points.some((p) => (p.rate_rx ?? 0) > 0 || (p.rate_tx ?? 0) > 0);
   const hasDeviceData = !!selectedMac && points.some((p) => (p.dev_rate_rx ?? 0) > 0 || (p.dev_rate_tx ?? 0) > 0);
@@ -176,16 +184,40 @@ export function GraphsTab() {
             <label className="text-xs lb-text-muted whitespace-nowrap">Appareil :</label>
             <select
               value={selectedMac}
-              onChange={(e) => handleDeviceChange(e.target.value)}
+              onChange={(e) => loadDevice(e.target.value, hours)}
               className="lb-input flex-1 sm:max-w-xs"
             >
               <option value="">WAN global (agrégé)</option>
               {(deviceList ?? []).map((d) => (
-                <option key={d.mac} value={d.mac}>{d.name}</option>
+                <option key={d.mac} value={d.mac}>{d.name}{d.active === false ? " (hors ligne)" : ""}</option>
               ))}
             </select>
+            {selectedMac && (
+              <div className="flex overflow-hidden rounded-md border lb-border text-xs">
+                {PERIODS.map((p) => (
+                  <button
+                    key={p.hours}
+                    onClick={() => loadDevice(selectedMac, p.hours)}
+                    className={`px-2 py-1.5 ${
+                      hours === p.hours
+                        ? "bg-[var(--primary-color)] text-[var(--text-primary-color)]"
+                        : "lb-text-muted hover:bg-[var(--secondary-background-color)]"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {devLoading && <span className="text-xs lb-text-muted">Chargement…</span>}
           </div>
+          {selectedMac && deviceHistory?.source === "memory" && (
+            <p className="mb-2 text-xs lb-text-muted">
+              Pas d'historique enregistré par Home Assistant pour cet appareil (aucun capteur de débit —
+              c'est le cas des appareils filaires tant que le suivi Ethernet est désactivé dans les options
+              de l'intégration Oralink). Affichage de l'historique en mémoire depuis le dernier redémarrage.
+            </p>
+          )}
 
           <TrafficChart
             points={points}
@@ -198,7 +230,8 @@ export function GraphsTab() {
       <p className="mt-3 text-xs lb-text-muted">
         Débit WAN depuis les compteurs cumulés veip0, échantillonné ~1 min, conservé ~12h.
         Taux instantané depuis NeMo.Intf rafraîchi toutes les 3 s.
-        L'historique par appareil n'est disponible que si l'appareil a transmis du trafic.
+        L'historique par appareil vient du recorder de Home Assistant (capteurs « Débit ↓/↑ ») :
+        il survit aux redémarrages et remonte jusqu'à 7 jours selon la rétention du recorder.
       </p>
     </Card>
     </div>

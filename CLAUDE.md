@@ -52,6 +52,12 @@ npm run build        # écrit directement dans custom_components/oralink/www/rea
 Puis incrémenter `_PANEL_BUILD` dans `custom_components/oralink/__init__.py`
 (cache-busting de l'URL du module).
 
+**Graphique par appareil** : `livebox/graphs/device` lit l'historique des
+capteurs « Débit ↓/↑ » dans le **recorder de HA** (persistant, jusqu'à 7 jours
+via le paramètre `hours`, fusion/sous-échantillonnage dans `history_utils.py`),
+avec repli sur l'historique en mémoire du coordinator quand l'appareil n'a pas
+de capteurs (appareils filaires si le suivi Ethernet est désactivé).
+
 **⚠️ Le dépôt Git n'est PAS synchronisé automatiquement avec l'instance Home
 Assistant.** Après un `git push` (ou même sans commit, pour tester), il faut
 explicitement déployer les fichiers modifiés : l'instance HA est montée en
@@ -67,9 +73,9 @@ relance l'entrée avec les modules *déjà importés* : le nouveau code Python
 n'est pris en compte qu'après un **redémarrage complet de Home Assistant**
 (Paramètres → Système → Redémarrer). Vérifié le 2026-11-16 : après un
 rechargement, les nouvelles commandes WS restaient « Unknown command » et
-`__pycache__` n'était pas régénéré. Un rechargement suffit en revanche pour
-ré-enregistrer le panel avec un nouveau `_PANEL_BUILD` quand seul le bundle
-JS a changé.
+`__pycache__` n'était pas régénéré. Ça vaut aussi pour un changement du seul
+bundle JS : `_PANEL_BUILD` est une constante Python, l'URL du panel (et donc
+le cache-busting) ne change qu'après redémarrage.
 
 ⚠️ **Piège des `.gz`** : le serveur statique de HA sert `<fichier>.js.gz` en
 priorité aux navigateurs qui acceptent gzip. Un simple `cp` du bundle laisse
