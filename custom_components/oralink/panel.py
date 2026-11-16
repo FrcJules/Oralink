@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import time
 from uuid import uuid4
 
@@ -23,6 +24,9 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_dhcp)
     websocket_api.async_register_command(hass, ws_get_nat)
     websocket_api.async_register_command(hass, ws_get_ptf)
+    websocket_api.async_register_command(hass, ws_get_pinholes)
+    websocket_api.async_register_command(hass, ws_add_pinhole)
+    websocket_api.async_register_command(hass, ws_delete_pinhole)
     websocket_api.async_register_command(hass, ws_ptf_add)
     websocket_api.async_register_command(hass, ws_ptf_delete)
     websocket_api.async_register_command(hass, ws_get_network)
@@ -192,6 +196,7 @@ def ws_get_devices(hass, connection, msg):
             "mac": mac,
             "name": d.get("Name", mac),
             "ip": d.get("IPAddress", ""),
+            "ipv6": _global_ipv6(d),
             "active": d.get("Active", False),
             # Un type forcé manuellement (détection Livebox erronée) prime sur
             # le DeviceType brut — cf. livebox/topology/type/set.
@@ -209,6 +214,15 @@ def ws_get_devices(hass, connection, msg):
 
     result.sort(key=lambda d: (not d["active"], d["name"].lower()))
     connection.send_result(msg["id"], result)
+
+
+def _global_ipv6(device: dict) -> str:
+    """Première adresse IPv6 globale joignable d'un appareil (pour les pinholes)."""
+    for addr in device.get("IPv6Address") or []:
+        if isinstance(addr, dict) and addr.get("Scope") == "global" and addr.get("Address"):
+            if addr.get("Status") in (None, "", "reachable"):
+                return addr["Address"]
+    return ""
 
 
 def _normalize_lease(lease: dict) -> dict:
@@ -297,6 +311,108 @@ def ws_get_nat(hass, connection, msg):
     # Only manual (webui-created) rules for the NAT tab
     webui = [r for r in all_rules if str(r.get("id", "")).startswith("webui_")]
     connection.send_result(msg["id"], webui if webui else all_rules)
+
+
+# ── Pare-feu IPv6 : ouvertures de ports (Firewall:get/set/deletePinhole) ──────
+# En IPv6 il n'y a pas de NAT : chaque appareil a une adresse publique, mais le
+# pare-feu de la box bloque l'entrant. Un « pinhole » ouvre un port vers une
+# adresse IPv6 précise (cf. save_ipv6_pat_rule de LiveboxMonitor).
+
+
+@websocket_api.websocket_command({vol.Required("type"): "livebox/ipv6/pinholes"})
+@websocket_api.async_response
+async def ws_get_pinholes(hass, connection, msg):
+    """Liste les ouvertures de ports IPv6 (manuelles et UPnP)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    raw = await _safe_post(coordinator, "Firewall", "getPinhole", {})
+    rules = []
+    if isinstance(raw, dict):
+        for rule_id, r in raw.items():
+            if not isinstance(r, dict) or not r.get("DestinationPort"):
+                continue  # sans port = redirection de protocole, pas un pinhole de port
+            rules.append({
+                "rule_id": r.get("Id") or rule_id,
+                "origin": r.get("Origin", ""),
+                "name": r.get("Description") or r.get("Id") or rule_id,
+                "enable": bool(r.get("Enable", True)),
+                "protocol": r.get("Protocol", ""),
+                "port": r.get("DestinationPort", ""),
+                "destination_ip": r.get("DestinationIPAddress", ""),
+                "source_prefix": r.get("SourcePrefix", ""),
+            })
+    connection.send_result(msg["id"], {"supported": raw is not None, "rules": rules})
+
+
+def _ipv6_address(value: str) -> str:
+    address = ipaddress.ip_address(value.strip())
+    if address.version != 6:
+        raise vol.Invalid("adresse IPv6 attendue")
+    return str(address)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/ipv6/pinhole/add",
+    vol.Required("name"): vol.All(str, vol.Match(r"^[A-Za-z0-9_-]{1,32}$")),
+    vol.Required("protocol"): str,
+    vol.Required("port"): vol.All(str, vol.Match(r"^\d{1,5}(-\d{1,5})?$")),
+    vol.Required("destination_ip"): str,
+    vol.Optional("source_prefix", default=""): str,
+})
+@websocket_api.async_response
+async def ws_add_pinhole(hass, connection, msg):
+    """Ouvre un port IPv6 vers un appareil (Firewall:setPinhole)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        destination = _ipv6_address(msg["destination_ip"])
+        await coordinator.api.firewall._auth.post("Firewall", "setPinhole", {
+            "id": msg["name"],
+            "origin": "webui",
+            "sourceInterface": "data",
+            "sourcePort": "",
+            "destinationPort": msg["port"],
+            "destinationIPAddress": destination,
+            "sourcePrefix": msg["source_prefix"],
+            "protocol": _protocol_numbers(msg["protocol"]),
+            "ipversion": 6,
+            "enable": True,
+            "persistent": True,
+            "description": msg["name"],
+            "destinationMACAddress": "",
+        })
+        await coordinator.api.firewall.async_commit()
+        connection.send_result(msg["id"], {"status": "added"})
+    except Exception as err:
+        connection.send_error(msg["id"], "pinhole_add_failed", str(err))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/ipv6/pinhole/delete",
+    vol.Required("rule_id"): str,
+    vol.Optional("origin", default="webui"): vol.In(["webui", "upnp"]),
+})
+@websocket_api.async_response
+async def ws_delete_pinhole(hass, connection, msg):
+    """Supprime une ouverture de port IPv6 (Firewall:deletePinhole)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.api.firewall._auth.post(
+            "Firewall", "deletePinhole", {"id": msg["rule_id"], "origin": msg["origin"]}
+        )
+        await coordinator.api.firewall.async_commit()
+        connection.send_result(msg["id"], {"status": "deleted"})
+    except Exception as err:
+        connection.send_error(msg["id"], "pinhole_delete_failed", str(err))
 
 
 @callback

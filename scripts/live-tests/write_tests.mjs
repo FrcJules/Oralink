@@ -138,13 +138,13 @@ await test("Topologie", async () => {
   const sws = await ws({ type: "livebox/topology/switches" });
   const id = (sws.r || []).find(s => s.name === "OralinkTest")?.id;
   const rm = id ? await ws({ type: "livebox/topology/switches/remove", switch_id: id }) : { ok: false, e: "switch introuvable " + JSON.stringify(sws.r).slice(0, 100) };
-  const pr = await ws({ type: "livebox/topology/parent/set", mac: "02:0A:11:22:33:44", parent: "02:0A:11:22:33:46" });
+  const pr = await ws({ type: "livebox/topology/parent/set", mac: "02:0A:11:22:33:44", parent: "2C:93:FB:BB:55:90" });
   const prs = await ws({ type: "livebox/topology/parents" });
   const pr2 = await ws({ type: "livebox/topology/parent/set", mac: "02:0A:11:22:33:44", parent: null });
   const pos = await ws({ type: "livebox/topology/positions" });
   rec("Topologie : position", a.ok && p.r?.["oralink-test"]?.x === 10, a.e ?? "");
   rec("Topologie : switch perso", sw.ok && rm.ok, `${sw.e ?? ""}${rm.e ?? ""}`);
-  rec("Topologie : rattachement forcé", pr.ok && prs.r?.["02:0A:11:22:33:44"] === "02:0A:11:22:33:46" && pr2.ok, `${pr.e ?? ""}${pr2.e ?? ""} ${JSON.stringify(prs.r).slice(0, 80)}`);
+  rec("Topologie : rattachement forcé", pr.ok && prs.r?.["02:0A:11:22:33:44"] === "2C:93:FB:BB:55:90" && pr2.ok, `${pr.e ?? ""}${pr2.e ?? ""} ${JSON.stringify(prs.r).slice(0, 80)}`);
   // nettoyage de la position de test : reset seulement si aucune autre position n'existait
   const others = Object.keys(pos.r || {}).filter(k => k !== "oralink-test");
   if (!others.length) { const r = await ws({ type: "livebox/topology/positions/reset" }); rec("Topologie : reset positions", r.ok, r.e ?? ""); }
@@ -155,6 +155,23 @@ await test("Décodeur TV", async () => {
   const b = await ws({ type: "livebox/tvdecoders/remove", mac: "02:0A:11:22:33:45" });
   const l2 = await ws({ type: "livebox/tvdecoders" });
   rec("Décodeur TV : config", a.ok && JSON.stringify(l.r).includes("OralinkTest") && b.ok && !JSON.stringify(l2.r).includes("OralinkTest"), `${a.e ?? ""}${b.e ?? ""}`);
+});
+// 14. Pare-feu IPv6 (adresse de documentation 2001:db8::/32, jamais routée)
+await test("Pinhole IPv6", async () => {
+  const a = await ws({ type: "livebox/ipv6/pinhole/add", name: "OralinkTest", protocol: "TCP/UDP", port: "65030", destination_ip: "2001:db8::4f" });
+  const b = await st("Firewall", "getPinhole", {});
+  const key = Object.keys(b || {}).find(k => (b[k].Description || "").includes("OralinkTest"));
+  rec("IPv6 pinhole : ajout", a.ok && !!key && b[key].Protocol === "6,17" && b[key].DestinationPort === "65030", `${a.e ?? ""} ${key ?? ""}`);
+  const l = await ws({ type: "livebox/ipv6/pinholes" });
+  const rule = (l.r?.rules || []).find(r => r.name === "OralinkTest");
+  rec("IPv6 pinhole : lecture via Oralink", !!rule, JSON.stringify(rule ?? l.e).slice(0, 120));
+  if (rule) {
+    const d = await ws({ type: "livebox/ipv6/pinhole/delete", rule_id: rule.rule_id, origin: rule.origin });
+    const b2 = await st("Firewall", "getPinhole", {});
+    rec("IPv6 pinhole : suppression", d.ok && !(b2 || {})[rule.rule_id], d.e ?? "");
+  }
+  const v = await ws({ type: "livebox/ipv6/pinhole/add", name: "bad", protocol: "TCP", port: "80", destination_ip: "192.168.1.5" });
+  rec("IPv6 pinhole : refus d'une IPv4", !v.ok, v.e ?? "accepté !");
 });
 console.log(`\n${results.filter(r => r[1]).length}/${results.length} OK`);
 await ha.close();

@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
+import { useConfirm } from "../lib/confirm-context.jsx";
 
 function fmtBytes(b) {
   if (b == null || b === 0) return "0 o";
@@ -620,6 +621,145 @@ function PtfSection() {
   );
 }
 
+// ── Pare-feu IPv6 (pinholes) ──────────────────────────────────────────────────
+
+const EMPTY_PINHOLE = { name: "", protocol: "TCP", port: "", destination_ip: "" };
+
+function AddPinholeForm({ onSaved }) {
+  const runAction = useWsAction();
+  const { data: devices } = useWsData("livebox/devices", {}, 60_000);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_PINHOLE);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState(null);
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const withIpv6 = (devices ?? []).filter((d) => d.ipv6 && d.active);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setFormError(null);
+    try {
+      await runAction(
+        { type: "livebox/ipv6/pinhole/add", name: form.name.trim(), protocol: form.protocol,
+          port: form.port.trim(), destination_ip: form.destination_ip.trim() },
+        { success: `Port ${form.port.trim()} ouvert en IPv6.` },
+      );
+      setForm(EMPTY_PINHOLE);
+      setOpen(false);
+      onSaved();
+    } catch (err) { setFormError(err); } finally { setSaving(false); }
+  };
+
+  if (!open) return <button onClick={() => setOpen(true)} className="lb-btn-primary mb-3">+ Ouvrir un port IPv6</button>;
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-4 grid gap-2 rounded-lg border lb-border p-3 sm:grid-cols-3">
+      {withIpv6.length > 0 && (
+        <label className="flex flex-col gap-1 text-xs lb-text-muted sm:col-span-3">
+          Appareil (adresse IPv6 globale)
+          <select value={form.destination_ip} onChange={set("destination_ip")} className="lb-input">
+            <option value="">— sélectionner —</option>
+            {withIpv6.map((d) => <option key={d.mac} value={d.ipv6}>{d.name} — {d.ipv6}</option>)}
+          </select>
+        </label>
+      )}
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Nom (lettres, chiffres, - _)
+        <input value={form.name} onChange={set("name")} required pattern="[A-Za-z0-9_\-]{1,32}" className="lb-input" />
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Protocole
+        <select value={form.protocol} onChange={set("protocol")} className="lb-input">
+          {PROTOCOLS.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted">
+        Port ou plage (ex. 443 ou 8000-8010)
+        <input value={form.port} onChange={set("port")} required pattern="\d{1,5}(-\d{1,5})?" className="lb-input" />
+      </label>
+      <label className="flex flex-col gap-1 text-xs lb-text-muted sm:col-span-3">
+        Adresse IPv6 de destination
+        <input value={form.destination_ip} onChange={set("destination_ip")} required placeholder="2a01:…" className="lb-input font-mono" />
+      </label>
+      <div className="flex gap-2 sm:col-span-3">
+        <button type="submit" disabled={saving} className="lb-btn-primary">{saving ? "Enregistrement…" : "Enregistrer"}</button>
+        <button type="button" onClick={() => setOpen(false)} className="lb-btn-outline">Annuler</button>
+      </div>
+      {formError && <p className="text-xs text-red-600 sm:col-span-3">Erreur : {String(formError.message ?? formError)}</p>}
+    </form>
+  );
+}
+
+const PROTOCOL_LABELS = { "6": "TCP", "17": "UDP", "6,17": "TCP/UDP" };
+
+function PinholeSection() {
+  const { data, loading, error, refresh } = useWsData("livebox/ipv6/pinholes", {}, 60_000);
+  const runAction = useWsAction();
+  const confirm = useConfirm();
+
+  const handleDelete = async (rule) => {
+    if (!await confirm({ title: "Fermer le port IPv6", message: `Supprimer « ${rule.name} » (port ${rule.port} vers ${rule.destination_ip}) ?`, danger: true })) return;
+    try {
+      await runAction({ type: "livebox/ipv6/pinhole/delete", rule_id: rule.rule_id, origin: rule.origin || "webui" },
+        { success: `Règle « ${rule.name} » supprimée.` });
+      refresh();
+    } catch { /* toast déjà affiché */ }
+  };
+
+  if (data && !data.supported) return null;
+
+  return (
+    <Card title="Pare-feu IPv6 (ouvertures de ports)">
+      <p className="mb-3 text-xs lb-text-muted">
+        En IPv6 il n'y a pas de NAT : chaque appareil a sa propre adresse publique, mais le pare-feu
+        de la Livebox bloque les connexions entrantes. Une règle ouvre un port vers une adresse précise.
+      </p>
+      <StateBox loading={loading} error={error} />
+      {data && (
+        <>
+          <AddPinholeForm onSaved={refresh} />
+          {data.rules.length === 0 ? (
+            <p className="text-sm lb-text-muted">Aucun port IPv6 ouvert.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs uppercase lb-text-muted">
+                  <tr>
+                    <th className="py-1.5 pr-3">Nom</th>
+                    <th className="py-1.5 pr-3">Protocole</th>
+                    <th className="py-1.5 pr-3">Port</th>
+                    <th className="py-1.5 pr-3">Destination</th>
+                    <th className="py-1.5 pr-3">Origine</th>
+                    <th className="py-1.5" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.rules.map((rule) => (
+                    <tr key={rule.rule_id} className="border-t lb-border">
+                      <td className="py-1.5 pr-3 font-medium">{rule.name}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{PROTOCOL_LABELS[rule.protocol] ?? rule.protocol}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.port}</td>
+                      <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted break-all">{rule.destination_ip}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.origin === "upnp" ? "UPnP" : "Manuelle"}</td>
+                      <td className="py-1.5 text-right">
+                        <button onClick={() => handleDelete(rule)}
+                          className="rounded-md border border-red-200 px-2 py-0.5 text-xs text-red-600 hover:bg-red-50">
+                          Supprimer
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export function ReseauTab() {
@@ -636,6 +776,10 @@ export function ReseauTab() {
       {/* PTF full width */}
       <div className="md:col-span-2">
         <PtfSection />
+      </div>
+      {/* Pare-feu IPv6 full width */}
+      <div className="md:col-span-2">
+        <PinholeSection />
       </div>
     </div>
   );

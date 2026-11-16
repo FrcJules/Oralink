@@ -158,3 +158,14 @@ def test_every_platform_has_a_module():
     )
     missing = [p for p in platforms if not (COMPONENT / f"{p}.py").is_file()]
     assert missing == []
+
+
+def test_global_ipv6():
+    pick = _load_helper("_global_ipv6")
+    device = {"IPv6Address": [
+        {"Address": "fe80::1", "Scope": "link", "Status": "reachable"},
+        {"Address": "2a01:db8::5", "Scope": "global", "Status": "reachable"},
+    ]}
+    assert pick(device) == "2a01:db8::5"
+    assert pick({"IPv6Address": [{"Address": "2a01:db8::6", "Scope": "global", "Status": "stale"}]}) == ""
+    assert pick({}) == ""

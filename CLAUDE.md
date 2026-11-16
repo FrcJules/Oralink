@@ -203,6 +203,15 @@ sous le NAT, `Firewall:getProtocolForwarding` / `setProtocolForwarding` /
 est obligatoire (vérifié sur Livebox 6, cf. `save_ipv4_ptf_rule` de
 LiveboxMonitor). L'ancienne version à plages de ports ne pouvait pas marcher.
 
+**Pare-feu IPv6 (pinholes)** — section sous la redirection de protocole
+(onglet "Réseau") : `Firewall:getPinhole/setPinhole/deletePinhole`, commandes
+`livebox/ipv6/pinholes`, `livebox/ipv6/pinhole/add|delete`. Une règle ouvre
+un port (ou une plage) vers une IPv6 précise ; la box préfixe l'identifiant
+par l'origine (`webui_<nom>`), à repasser tel quel à `deletePinhole`. Le
+formulaire propose les appareils actifs ayant une IPv6 globale (`ipv6` dans
+`livebox/devices`). Testé sur Livebox 6 avec `2001:db8::/32` (plage de
+documentation, jamais routée).
+
 **Pièges de l'API vérifiés sur la box (2026-11-16, tests `scripts/live-tests/`)** :
 - Protocoles NAT/PTF en **numéros IANA** (`"6"`, `"17"`, `"6,17"`) : la box
   refuse `"TCP"` (« Invalid parameter: protocol »). `_protocol_numbers()`
