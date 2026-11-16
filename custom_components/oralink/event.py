@@ -40,7 +40,7 @@ class LiveboxDeviceEvents(LiveboxEntity, EventEntity):  # pyrefly: ignore[incons
         """Initialize the entity."""
         super().__init__(
             coordinator,
-            EventEntityDescription(key="device_events", name="Événements réseau"),
+            EventEntityDescription(key="device_events", translation_key="device_events"),
         )
 
     async def async_added_to_hass(self) -> None:

@@ -35,7 +35,6 @@ class LiveboxBinarySensorEntityDescription(BinarySensorEntityDescription):
 FIBER_BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]] = (
     LiveboxBinarySensorEntityDescription(
         key="onu_state",
-        name="ONU State",
         icon="mdi:fiber-optic",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -56,7 +55,6 @@ FIBER_BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]
 BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]] = (
     LiveboxBinarySensorEntityDescription(
         key="connectivity",
-        name="WAN Status",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda x: find_item(x, "wan_status.WanState", "").lower() == "up",
@@ -81,14 +79,12 @@ BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]] = (
     LiveboxBinarySensorEntityDescription(
         key="callmissed",
         icon=MISSED_ICON,
-        name="Call missed",
         value_fn=lambda x: len(x.get("cmissed", [])) > 0,
         attrs={"missed_calls": lambda x: x.get("cmissed", [])},
         translation_key="callmissed",
     ),
     LiveboxBinarySensorEntityDescription(
         key="remote_access",
-        name="Remote Access",
         icon=RA_ICON,
         value_fn=lambda x: x.get("remote_access"),
         attrs={},
@@ -96,7 +92,6 @@ BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]] = (
     ),
     LiveboxBinarySensorEntityDescription(
         key="wan_error",
-        name="WAN Connection Error",
         icon="mdi:wan",
         device_class=BinarySensorDeviceClass.PROBLEM,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -109,7 +104,6 @@ BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]] = (
     ),
     LiveboxBinarySensorEntityDescription(
         key="ntp_synced",
-        name="NTP Synchronized",
         icon="mdi:clock-check",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -119,7 +113,6 @@ BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]] = (
     ),
     LiveboxBinarySensorEntityDescription(
         key="ipv6_active",
-        name="IPv6 Active",
         icon="mdi:ip-network",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -132,7 +125,6 @@ BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]] = (
     ),
     LiveboxBinarySensorEntityDescription(
         key="cgnat_active",
-        name="CG-NAT Active",
         icon="mdi:shield-network",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda x: bool(x.get("cgnat_active", False)),
@@ -168,12 +160,12 @@ async def async_setup_entry(
             index=idx,
             icon=DDNS_ICON,
             device_class=BinarySensorDeviceClass.PROBLEM,
-            name=f"Dynamic DNS ({item.get('service')})",
             value_fn=lambda x, y: (
                 find_item(x, f"ddns.{y}.status", "").lower() != "updated"
             ),
             attrs={"last_update": lambda x, y: find_item(x, f"ddns.{y}.last_update")},
-            translation_key=f"ddns_{idx}",
+            translation_key="ddns",
+            translation_placeholders={"service": str(item.get("service") or idx)},
         )
         entities.append(LiveboxBinarySensor(coordinator, description))
 

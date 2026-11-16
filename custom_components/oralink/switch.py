@@ -31,7 +31,6 @@ class LiveboxSwitchEntityDescription(SwitchEntityDescription):
 SWITCH_TYPES: Final[tuple[LiveboxSwitchEntityDescription, ...]] = (
     LiveboxSwitchEntityDescription(
         key="wifi",
-        name="Wifi",
         translation_key="wifi_switch",
         value_fn=lambda x: x.get("wifi"),
         turn_on=lambda x: x.nmc.async_set_wifi({"Enable": True, "Status": True}),
@@ -39,7 +38,6 @@ SWITCH_TYPES: Final[tuple[LiveboxSwitchEntityDescription, ...]] = (
     ),
     LiveboxSwitchEntityDescription(
         key="guest_wifi",
-        name="Guest Wifi",
         icon=GUESTWIFI_ICON,
         translation_key="guest_wifi",
         value_fn=lambda x: x.get("guest_wifi"),
@@ -51,7 +49,6 @@ SWITCH_TYPES: Final[tuple[LiveboxSwitchEntityDescription, ...]] = (
 SWITCH_TYPES_5: Final[tuple[LiveboxSwitchEntityDescription, ...]] = (
     LiveboxSwitchEntityDescription(
         key="wifi",
-        name="Wifi",
         translation_key="wifi_switch",
         value_fn=lambda x: x.get("wifi"),
         turn_on=lambda x: x.nemo.async_wifi(True),
@@ -59,7 +56,6 @@ SWITCH_TYPES_5: Final[tuple[LiveboxSwitchEntityDescription, ...]] = (
     ),
     LiveboxSwitchEntityDescription(
         key="guest_wifi",
-        name="Guest Wifi",
         icon=GUESTWIFI_ICON,
         translation_key="guest_wifi",
         value_fn=lambda x: x.get("guest_wifi"),
