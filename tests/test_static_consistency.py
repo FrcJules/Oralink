@@ -169,3 +169,45 @@ def test_global_ipv6():
     assert pick(device) == "2a01:db8::5"
     assert pick({"IPv6Address": [{"Address": "2a01:db8::6", "Scope": "global", "Status": "stale"}]}) == ""
     assert pick({}) == ""
+
+
+CURRENT_WIFI = {
+    "ssid": "Livebox-3FB8", "broadcast": True, "security": "WPA2-Personal",
+    "security_modes": ["None", "WPA2-Personal", "WPA3-Personal", "WPA2-WPA3-Personal"],
+    "password": "motdepasse-actuel", "wps": True,
+}
+
+
+def test_wifi_change_only_changed_fields():
+    validate = _load_helper("_validate_wifi_change")
+    assert validate(CURRENT_WIFI, {"ssid": "Livebox-3FB8"}) == {}
+    assert validate(CURRENT_WIFI, {"ssid": "Maison"}) == {"SSID": "Maison"}
+    assert validate(CURRENT_WIFI, {"password": "nouveau-mdp-123"}) == {"Security": {"KeyPassPhrase": "nouveau-mdp-123"}}
+    assert validate(CURRENT_WIFI, {"security": "WPA3-Personal"}) == {
+        "Security": {"ModeEnabled": "WPA3-Personal", "KeyPassPhrase": "motdepasse-actuel"}}
+    assert validate(CURRENT_WIFI, {"broadcast": False, "wps": False}) == {
+        "SSIDAdvertisementEnabled": False, "WPS": {"Enable": False}}
+
+
+def test_wifi_change_rejects_invalid():
+    validate = _load_helper("_validate_wifi_change")
+    for bad in ({"password": "court"}, {"password": "x" * 64}, {"password": "accentué-é-12345"},
+                {"ssid": ""}, {"ssid": "x" * 33}, {"security": "WEP"}):
+        with pytest.raises(ValueError):
+            validate(CURRENT_WIFI, bad)
+    # réseau ouvert : pas de contrainte de mot de passe
+    assert validate(CURRENT_WIFI, {"security": "None", "password": ""}) == {"Security": {"ModeEnabled": "None", "KeyPassPhrase": ""}}
+
+
+def test_wifi_networks_from_mibs():
+    parse = _load_helper("_wifi_networks_from_mibs")
+    mibs = {
+        "base": {"vap5g0priv0": {"Enable": True, "LLIntf": {"rad5g0": {}}}},
+        "wlanradio": {"rad5g0": {"OperatingFrequencyBand": "5GHz"}},
+        "wlanvap": {"vap5g0priv0": {"SSID": "Box_5G", "SSIDAdvertisementEnabled": True,
+                                    "Security": {"ModeEnabled": "WPA2-Personal", "ModesAvailable": "None,WPA2-Personal",
+                                                 "KeyPassPhrase": "secret123"}, "WPS": {"Enable": False}}},
+    }
+    (net,) = parse("lan", mibs)
+    assert net["band"] == "5GHz" and net["enabled"] and net["ssid"] == "Box_5G"
+    assert net["security_modes"] == ["None", "WPA2-Personal"] and net["password"] == "secret123"

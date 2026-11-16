@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Settings, Wifi, WifiOff } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, KeyRound, Settings, Wifi, WifiOff } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { useDeviceNames } from "../lib/use-device-names.js";
 import { Card, StateBox } from "../components/card.jsx";
+import { useConfirm } from "../lib/confirm-context.jsx";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ function RadioRow({ radio, onSet }) {
           <span>{radio.bandwidth}</span>
           <span>·</span>
           <span>{radio.standards}</span>
-          {radio.tx_power != null && <><span>·</span><span>TX {radio.tx_power}%</span></>}
+          {radio.tx_power != null && <><span>·</span><span>TX {radio.tx_power < 0 ? "auto" : `${radio.tx_power}%`}</span></>}
         </span>
         <button
           onClick={() => setOpen((v) => !v)}
@@ -320,6 +321,151 @@ function GlobalWifiCard({ wifiEnabled, guestEnabled, guestTimerHours, onRefresh 
 
 // ── Main tab ──────────────────────────────────────────────────────────────────
 
+// ── Configuration des réseaux (SSID, mot de passe, sécurité) ──────────────────
+
+const SECURITY_LABELS = {
+  "None": "Aucune (ouvert)",
+  "WPA2-Personal": "WPA2",
+  "WPA3-Personal": "WPA3",
+  "WPA2-WPA3-Personal": "WPA2 / WPA3",
+};
+
+function WifiNetworkRow({ net, onSaved }) {
+  const runAction = useWsAction();
+  const confirm = useConfirm();
+  const [editing, setEditing] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState(null);
+
+  const start = () => {
+    setForm({ ssid: net.ssid, password: net.password, security: net.security, broadcast: net.broadcast, wps: !!net.wps });
+    setFormError(null);
+    setEditing(true);
+  };
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
+
+  const passwordError = form && form.security !== "None" && (form.password.length < 8 || form.password.length > 63)
+    ? "8 à 63 caractères" : null;
+  const ssidError = form && (form.ssid.length < 1 || new TextEncoder().encode(form.ssid).length > 32) ? "1 à 32 caractères" : null;
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (passwordError || ssidError) return;
+    const changes = {};
+    for (const key of ["ssid", "password", "security", "broadcast", "wps"]) {
+      const current = key === "wps" ? !!net.wps : net[key];
+      if (form[key] !== current) changes[key] = form[key];
+    }
+    if (Object.keys(changes).length === 0) { setEditing(false); return; }
+    if (net.network === "lan" && net.enabled && !await confirm({
+      title: "Modifier le Wi-Fi principal",
+      message: `Le réseau « ${net.ssid} » (${net.band}) va redémarrer : les appareils connectés seront déconnectés quelques secondes`
+        + (changes.ssid || changes.password || changes.security
+          ? " et devront se reconnecter avec les nouveaux paramètres (pensez aux objets connectés)." : "."),
+      danger: true,
+    })) return;
+    setSaving(true);
+    setFormError(null);
+    try {
+      await runAction({ type: "livebox/wifi/config/set", network: net.network, vap: net.vap, ...changes },
+        { success: `Réseau « ${form.ssid} » mis à jour.` });
+      setEditing(false);
+      onSaved();
+    } catch (err) { setFormError(err); } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="border-t lb-border py-2 first:border-t-0">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <span className={`inline-block size-2 rounded-full ${net.enabled ? "bg-emerald-500" : "bg-[var(--disabled-text-color)]"}`} />
+        <span className="min-w-28 font-medium lb-text break-all">{net.ssid || "—"}</span>
+        <span className="text-xs lb-text-muted">{net.band || net.vap}{net.enabled ? "" : " · désactivé"}</span>
+        <span className="text-xs lb-text-muted">{SECURITY_LABELS[net.security] ?? net.security}</span>
+        {net.security !== "None" && (
+          <span className="inline-flex items-center gap-1 font-mono text-xs lb-text-muted">
+            <KeyRound className="size-3" />
+            {showPassword ? net.password : "••••••••"}
+            <button type="button" onClick={() => setShowPassword((v) => !v)} className="hover:lb-text" title={showPassword ? "Masquer" : "Afficher"}>
+              {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+            </button>
+          </span>
+        )}
+        {!net.broadcast && <Badge orange>masqué</Badge>}
+        {net.wps && <Badge blue>WPS</Badge>}
+        <button onClick={editing ? () => setEditing(false) : start} className="ml-auto lb-link text-xs hover:underline">
+          {editing ? "Annuler" : "Modifier"}
+        </button>
+      </div>
+      {editing && form && (
+        <form onSubmit={handleSave} className="mt-2 grid gap-2 rounded-lg border lb-border p-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-xs lb-text-muted">
+            Nom du réseau (SSID)
+            <input value={form.ssid} onChange={set("ssid")} className="lb-input" />
+            {ssidError && <span className="text-red-600">{ssidError}</span>}
+          </label>
+          <label className="flex flex-col gap-1 text-xs lb-text-muted">
+            Sécurité
+            <select value={form.security} onChange={set("security")} className="lb-input">
+              {(net.security_modes.length ? net.security_modes : [net.security]).map((m) => (
+                <option key={m} value={m}>{SECURITY_LABELS[m] ?? m}</option>
+              ))}
+            </select>
+          </label>
+          {form.security !== "None" && (
+            <label className="flex flex-col gap-1 text-xs lb-text-muted sm:col-span-2">
+              Mot de passe
+              <input value={form.password} onChange={set("password")} autoComplete="new-password" className="lb-input font-mono" />
+              {passwordError && <span className="text-red-600">{passwordError}</span>}
+            </label>
+          )}
+          {form.security === "None" && (
+            <p className="text-xs text-red-600 sm:col-span-2">Attention : réseau ouvert, sans mot de passe.</p>
+          )}
+          {/* La Livebox ignore le masquage du SSID invité (toujours diffusé). */}
+          {net.network !== "guest" && (
+            <label className="flex items-center gap-2 text-xs lb-text-muted">
+              <input type="checkbox" checked={form.broadcast} onChange={set("broadcast")} /> Diffuser le nom du réseau
+            </label>
+          )}
+          {net.wps != null && (
+            <label className="flex items-center gap-2 text-xs lb-text-muted">
+              <input type="checkbox" checked={form.wps} onChange={set("wps")} /> WPS
+            </label>
+          )}
+          <div className="flex gap-2 sm:col-span-2">
+            <button type="submit" disabled={saving || !!passwordError || !!ssidError} className="lb-btn-primary text-xs disabled:opacity-40">
+              {saving ? "Enregistrement…" : "Enregistrer"}
+            </button>
+          </div>
+          {formError && <p className="text-xs text-red-600 sm:col-span-2">Erreur : {String(formError.message ?? formError)}</p>}
+        </form>
+      )}
+    </div>
+  );
+}
+
+function WifiConfigCard() {
+  const { data, loading, error, refresh } = useWsData("livebox/wifi/config", {}, 120_000);
+  const networks = data?.networks ?? [];
+  const groups = [
+    { label: "Wi-Fi principal", items: networks.filter((n) => n.network === "lan") },
+    { label: "Wi-Fi invité", items: networks.filter((n) => n.network === "guest") },
+  ];
+  return (
+    <Card title="Configuration des réseaux">
+      <StateBox loading={loading} error={error?.code === "unauthorized" ? { message: "Réservé aux administrateurs Home Assistant." } : error} />
+      {groups.map((g) => g.items.length > 0 && (
+        <div key={g.label} className="mb-3">
+          <p className="mb-1 text-xs font-semibold uppercase lb-text-muted">{g.label}</p>
+          {g.items.map((n) => <WifiNetworkRow key={`${n.network}-${n.vap}`} net={n} onSaved={refresh} />)}
+        </div>
+      ))}
+    </Card>
+  );
+}
+
 export function WifiTab() {
   const { data, loading, error, refresh } = useWsData("livebox/wifi/detail", {}, 30_000);
   const runAction = useWsAction();
@@ -356,6 +502,8 @@ export function WifiTab() {
           onRefresh={refresh}
         />
       )}
+
+      <WifiConfigCard />
 
       {/* Radios */}
       <Card title={

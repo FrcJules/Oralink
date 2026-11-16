@@ -1,0 +1,96 @@
+blueprint:
+  name: Oralink — couper le Wi-Fi la nuit
+  description: >-
+    Coupe le Wi-Fi de la Livebox à une heure donnée et le rallume le matin,
+    certains jours seulement si besoin. Utilise l'interrupteur « Wifi »
+    d'Oralink (vérifié sur Livebox 6 : les trois radios 2,4/5/6 GHz s'arrêtent,
+    reprise en ~20 s au rallumage). Plus souple que le planificateur interne de
+    la box : éditable dans Home Assistant et combinable avec d'autres
+    conditions (présence, alarme…).
+  domain: automation
+  source_url: https://github.com/FrcJules/Oralink/blob/master/blueprints/automation/oralink/wifi_night_schedule.yaml
+  input:
+    wifi_switch:
+      name: Interrupteur Wi-Fi de la Livebox
+      selector:
+        entity:
+          filter:
+            - integration: oralink
+              domain: switch
+    off_time:
+      name: Heure de coupure
+      default: "23:30:00"
+      selector:
+        time:
+    on_time:
+      name: Heure de rallumage
+      default: "07:00:00"
+      selector:
+        time:
+    days:
+      name: Jours de coupure (soir)
+      default: [mon, tue, wed, thu, fri, sat, sun]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Lundi
+              value: mon
+            - label: Mardi
+              value: tue
+            - label: Mercredi
+              value: wed
+            - label: Jeudi
+              value: thu
+            - label: Vendredi
+              value: fri
+            - label: Samedi
+              value: sat
+            - label: Dimanche
+              value: sun
+
+mode: single
+
+triggers:
+  - trigger: time
+    at: !input off_time
+    id: "off"
+  - trigger: time
+    at: !input on_time
+    id: "on"
+  # Rattrapage : si HA redémarre pendant la nuit, le Wi-Fi est rallumé à
+  # l'heure prévue même si la coupure n'a pas eu lieu (ou l'inverse).
+  - trigger: homeassistant
+    event: start
+    id: start
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: "off"
+          - condition: time
+            weekday: !input days
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input wifi_switch
+      - conditions:
+          - condition: trigger
+            id: "on"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: !input wifi_switch
+      # Au démarrage de HA en dehors de la plage de coupure : s'assurer que le
+      # Wi-Fi est allumé (ne coupe jamais au démarrage, par sécurité).
+      - conditions:
+          - condition: trigger
+            id: start
+          - condition: time
+            after: !input on_time
+            before: !input off_time
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: !input wifi_switch

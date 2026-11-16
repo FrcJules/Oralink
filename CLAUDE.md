@@ -228,6 +228,25 @@ formulaire propose les appareils actifs ayant une IPv6 globale (`ipv6` dans
 `livebox/devices`). Testé sur Livebox 6 avec `2001:db8::/32` (plage de
 documentation, jamais routée).
 
+**Configuration Wi-Fi** (onglet Wifi → « Configuration des réseaux ») :
+`livebox/wifi/config` (admin : renvoie les mots de passe) et
+`livebox/wifi/config/set` → `NeMo.Intf.<lan|guest>:getMIBs` /
+`setWLANConfig` avec `{"mibs": {"penable": {}, "wlanvap": {<vap>: {...}}}}`
+(modèle de `LmWifiApi.set_config`). Réseaux découverts dynamiquement (la
+Livebox 6 a aussi des VAP `priv1` WPA3, absentes de `_VAP_IFACES`).
+`setWLANConfig` répond succès même quand un champ est ignoré : le handler
+**relit** et renvoie `not_applied` (cas vérifié : masquer le SSID du réseau
+invité est ignoré par la box — option retirée du panel). Testé uniquement sur
+des réseaux désactivés (invité, `priv1`).
+
+**Coupure du Wi-Fi** : l'interrupteur `switch.<box>_wifi` (`NMC.Wifi:set`)
+arrête bien les 3 radios sur Livebox 6 sans toucher au profil
+`PowerManagement` WiFi (testé : reprise des radios ~20 s, appareils
+reconnectés). Le planificateur interne de la box (profil `WiFi`,
+`setScheduledProfiles`) n'est pas utilisé : format des jours non documenté et
+introspection `sysbus/...?_restDepth=-1` refusée (400) sur cette firmware —
+remplacé par le blueprint `blueprints/automation/oralink/wifi_night_schedule.yaml`.
+
 **Pièges de l'API vérifiés sur la box (2026-11-16, tests `scripts/live-tests/`)** :
 - Protocoles NAT/PTF en **numéros IANA** (`"6"`, `"17"`, `"6,17"`) : la box
   refuse `"TCP"` (« Invalid parameter: protocol »). `_protocol_numbers()`

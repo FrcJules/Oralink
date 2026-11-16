@@ -129,6 +129,8 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_wifi_radio)
     websocket_api.async_register_command(hass, ws_set_wifi_vap)
     websocket_api.async_register_command(hass, ws_kickstation)
+    websocket_api.async_register_command(hass, ws_get_wifi_config)
+    websocket_api.async_register_command(hass, ws_set_wifi_config)
     # Planificateur Wifi
     websocket_api.async_register_command(hass, ws_get_wifi_schedule)
     websocket_api.async_register_command(hass, ws_set_wifi_schedule)
@@ -2543,6 +2545,164 @@ async def ws_set_wifi_vap(hass, connection, msg):
         connection.send_result(msg["id"], {"status": "ok"})
     except Exception as err:
         connection.send_error(msg["id"], "vap_set_failed", str(err))
+
+
+# ── Configuration Wi-Fi (SSID, mot de passe, sécurité, WPS) ───────────────────
+# NeMo.Intf.<lan|guest>:getMIBs / setWLANConfig, comme la boîte de dialogue
+# « Wifi Configuration » de LiveboxMonitor (LmWifiApi.get_config/set_config).
+# Les réseaux sont découverts dynamiquement (une Livebox 6 a aussi des VAP
+# « priv1 » WPA3 que la liste codée en dur _VAP_IFACES ignore).
+
+_WIFI_NETWORKS = ("lan", "guest")
+_WIFI_FIELD_LABELS = {
+    "ssid": "nom du réseau", "password": "mot de passe", "security": "sécurité",
+    "broadcast": "diffusion du nom", "wps": "WPS",
+}
+
+
+def _wifi_networks_from_mibs(network: str, mibs: dict) -> list[dict]:
+    """MIBs NeMo (base, wlanradio, wlanvap) → liste des réseaux Wi-Fi d'une interface."""
+    base = mibs.get("base") or {}
+    radios = mibs.get("wlanradio") or {}
+    result = []
+    for key, vap in (mibs.get("wlanvap") or {}).items():
+        if not isinstance(vap, dict):
+            continue
+        b = base.get(key) or {}
+        radio_key = next(iter(b.get("LLIntf") or {}), None)
+        radio = radios.get(radio_key) or {}
+        security = vap.get("Security") or {}
+        modes = [m for m in str(security.get("ModesAvailable") or "").split(",") if m]
+        result.append({
+            "network": network,
+            "vap": key,
+            "band": radio.get("OperatingFrequencyBand") or "",
+            "enabled": bool(b.get("Enable")),
+            "ssid": vap.get("SSID") or "",
+            "broadcast": bool(vap.get("SSIDAdvertisementEnabled")),
+            "security": security.get("ModeEnabled") or "",
+            "security_modes": modes,
+            "password": security.get("KeyPassPhrase") or "",
+            "wps": (vap.get("WPS") or {}).get("Enable"),
+        })
+    result.sort(key=lambda r: (r["band"], r["vap"]))
+    return result
+
+
+async def _read_wifi_config(coordinator, network: str) -> list[dict]:
+    raw = await coordinator.api.devices._auth.post(
+        f"NeMo.Intf.{network}", "getMIBs", {"mibs": "base wlanradio wlanvap"}
+    )
+    mibs = raw.get("status") if isinstance(raw, dict) else None
+    return _wifi_networks_from_mibs(network, mibs if isinstance(mibs, dict) else {})
+
+
+# Lecture admin uniquement : la réponse contient les mots de passe Wi-Fi.
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "livebox/wifi/config"})
+@websocket_api.async_response
+async def ws_get_wifi_config(hass, connection, msg):
+    """Configuration de chaque réseau Wi-Fi (principal et invité)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    results = await asyncio.gather(
+        *(_read_wifi_config(coordinator, n) for n in _WIFI_NETWORKS), return_exceptions=True
+    )
+    networks = [vap for r in results if isinstance(r, list) for vap in r]
+    connection.send_result(msg["id"], {"networks": networks})
+
+
+def _validate_wifi_change(current: dict, msg: dict) -> dict:
+    """Construit le dictionnaire wlanvap à envoyer ; lève ValueError si invalide."""
+    change: dict = {}
+    if "ssid" in msg and msg["ssid"] != current["ssid"]:
+        ssid = msg["ssid"]
+        if not 1 <= len(ssid.encode()) <= 32:
+            raise ValueError("Le nom du réseau (SSID) doit faire de 1 à 32 octets.")
+        change["SSID"] = ssid
+    if "broadcast" in msg and msg["broadcast"] != current["broadcast"]:
+        change["SSIDAdvertisementEnabled"] = msg["broadcast"]
+    security = msg.get("security", current["security"])
+    if security not in current["security_modes"] and security != current["security"]:
+        raise ValueError(f"Mode de sécurité non supporté : {security}")
+    password = msg.get("password", current["password"])
+    if security != "None":
+        if not 8 <= len(password) <= 63 or not all(32 <= ord(c) < 127 for c in password):
+            raise ValueError("Le mot de passe doit faire 8 à 63 caractères ASCII imprimables.")
+    sec: dict = {}
+    if security != current["security"]:
+        sec["ModeEnabled"] = security
+    if password != current["password"] or (sec and security != "None"):
+        sec["KeyPassPhrase"] = password
+    if sec:
+        change["Security"] = sec
+    if "wps" in msg and msg["wps"] != current["wps"]:
+        change["WPS"] = {"Enable": msg["wps"]}
+    return change
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/wifi/config/set",
+    vol.Required("network"): vol.In(list(_WIFI_NETWORKS)),
+    vol.Required("vap"): vol.Match(r"^vap[0-9a-z]+$"),
+    vol.Optional("ssid"): str,
+    vol.Optional("password"): str,
+    vol.Optional("security"): str,
+    vol.Optional("broadcast"): bool,
+    vol.Optional("wps"): bool,
+})
+@websocket_api.async_response
+async def ws_set_wifi_config(hass, connection, msg):
+    """Modifie un réseau Wi-Fi (NeMo.Intf.<network>:setWLANConfig)."""
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        current = next(
+            (v for v in await _read_wifi_config(coordinator, msg["network"]) if v["vap"] == msg["vap"]),
+            None,
+        )
+        if current is None:
+            connection.send_error(msg["id"], "not_found", f"Réseau inconnu : {msg['vap']}")
+            return
+        change = _validate_wifi_change(current, msg)
+        if not change:
+            connection.send_result(msg["id"], {"status": "noop"})
+            return
+        await coordinator.api.devices._auth.post(
+            f"NeMo.Intf.{msg['network']}",
+            "setWLANConfig",
+            {"mibs": {"penable": {}, "wlanvap": {msg["vap"]: change}}},
+        )
+        # setWLANConfig répond « succès » même quand la box ignore un champ
+        # (ex. masquer le SSID du réseau invité, vérifié sur Livebox 6) :
+        # on relit pour ne pas annoncer un faux succès.
+        expected = {k: msg[k] for k in ("ssid", "password", "security", "broadcast", "wps") if k in msg}
+        not_applied: list[str] = []
+        for _ in range(3):
+            await asyncio.sleep(1.5)
+            after = next(
+                (v for v in await _read_wifi_config(coordinator, msg["network"]) if v["vap"] == msg["vap"]),
+                {},
+            )
+            not_applied = [k for k, value in expected.items() if after.get(k) != value]
+            if not not_applied:
+                break
+        if not_applied:
+            connection.send_error(
+                msg["id"], "not_applied",
+                "La Livebox n'a pas appliqué : " + ", ".join(_WIFI_FIELD_LABELS.get(k, k) for k in not_applied),
+            )
+            return
+        connection.send_result(msg["id"], {"status": "ok", "changed": sorted(change)})
+    except ValueError as err:
+        connection.send_error(msg["id"], "invalid_format", str(err))
+    except Exception as err:
+        connection.send_error(msg["id"], "wifi_config_failed", str(err))
 
 
 @websocket_api.require_admin

@@ -38,6 +38,13 @@ quand un appareil jamais vu se connecte :
 (ou Paramètres → Automatisations → Blueprints → Importer, avec l'URL
 `https://github.com/FrcJules/Oralink/blob/master/blueprints/automation/oralink/new_device_notification.yaml`).
 
+## Couper le Wi-Fi la nuit
+
+Blueprint qui coupe le Wi-Fi à une heure donnée et le rallume le matin (jours
+au choix, rattrapage après un redémarrage de HA) :
+
+[![Importer le blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2FFrcJules%2FOralink%2Fblob%2Fmaster%2Fblueprints%2Fautomation%2Foralink%2Fwifi_night_schedule.yaml)
+
 ## Structure du repo
 
 ```
