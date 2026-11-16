@@ -18,13 +18,22 @@ HA_URL="${2:-http://192.168.1.134:8123}"
 [ -d "$DEST" ] || { echo "Cible introuvable : $DEST (mount CIFS absent ?)" >&2; exit 1; }
 
 cd "$SRC"
+# Chunks du panel (noms hashés) : supprime côté HA ceux qui n'existent plus
+# dans le build, sinon ils s'accumulent à chaque déploiement.
+if [ -d "$DEST/www/react-panel/chunks" ]; then
+  for old in "$DEST"/www/react-panel/chunks/*; do
+    [ -e "$old" ] || continue
+    name=$(basename "$old" .gz)
+    [ -f "www/react-panel/chunks/$name" ] || rm -f "$old"
+  done
+fi
 find . -type f ! -path '*/__pycache__/*' ! -name '*.gz' -print0 |
   while IFS= read -r -d '' f; do
     mkdir -p "$DEST/$(dirname "$f")"
     cp "$f" "$DEST/$f"
   done
 
-for js in www/react-panel/livebox-panel-react.js www/tabs/topology.js; do
+for js in www/react-panel/livebox-panel-react.js www/react-panel/chunks/*.js www/tabs/topology.js; do
   [ -f "$js" ] || continue
   gzip -9 -n -c "$js" > "$DEST/$js.gz"
 done

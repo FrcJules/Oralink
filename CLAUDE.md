@@ -52,6 +52,16 @@ npm run build        # écrit directement dans custom_components/oralink/www/rea
 Puis incrémenter `_PANEL_BUILD` dans `custom_components/oralink/__init__.py`
 (cache-busting de l'URL du module).
 
+**Découpage du bundle** (`vite.config.js`) : l'entrée `livebox-panel-react.js`
+(~1 Ko) charge un chunk `core` ; Topologie et Graphiques sont en `React.lazy`
+dans `chunks/`. Contraintes : une seule CSS (`cssCodeSplit: false`, le Shadow
+DOM ne charge que `livebox-panel-react.css`), `base: './'`, et **aucun chunk
+ne doit importer l'entrée** — HA la charge avec `?v=<build>`, un import sans
+paramètre en créerait une 2e instance (2 React). D'où `manualChunks` qui met
+tout le code partagé dans `core`. Vérifier après build :
+`grep -l livebox-panel-react.js custom_components/oralink/www/react-panel/chunks/*`
+doit être vide. `scripts/deploy.sh` nettoie les chunks périmés côté HA.
+
 **Graphique par appareil** : `livebox/graphs/device` lit l'historique des
 capteurs « Débit ↓/↑ » dans le **recorder de HA** (persistant, jusqu'à 7 jours
 via le paramètre `hours`, fusion/sous-échantillonnage dans `history_utils.py`),

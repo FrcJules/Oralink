@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { lazy, Suspense, useState, useRef } from "react";
 import {
   LayoutDashboard, Monitor, Network, GitFork,
   Wifi, Radio, BarChart2, Phone, Tv,
@@ -9,9 +9,7 @@ import { OverviewTab }      from "./tabs/overview-tab.jsx";
 import { DevicesTab }       from "./tabs/devices-tab.jsx";
 import { ReseauTab }        from "./tabs/reseau-tab.jsx";
 import { WifiTab }          from "./tabs/wifi-tab.jsx";
-import { GraphsTab }        from "./tabs/graphs-tab.jsx";
 import { AdministrationTab } from "./tabs/administration-tab.jsx";
-import { TopologyTab }      from "./tabs/topology-tab.jsx";
 import { PhoneTab }         from "./tabs/phone-tab.jsx";
 import { EventsTab }        from "./tabs/events-tab.jsx";
 import { TvDecoderTab }     from "./tabs/tv-decoder-tab.jsx";
@@ -56,6 +54,12 @@ const NAV_GROUPS = [
 ];
 
 const ALL_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+
+// Onglets lourds chargés à la demande : la topologie embarque @xyflow/react
+// et les graphiques recharts — inutile de les télécharger à chaque ouverture
+// du panel (notamment sur mobile en 4G).
+const GraphsTab = lazy(() => import("./tabs/graphs-tab.jsx").then((m) => ({ default: m.GraphsTab })));
+const TopologyTab = lazy(() => import("./tabs/topology-tab.jsx").then((m) => ({ default: m.TopologyTab })));
 
 const TAB_RENDER = {
   overview:       () => <OverviewTab />,
@@ -246,7 +250,9 @@ export default function App() {
             desktop, where that header doesn't exist. */}
         <main className="flex-1 min-h-0 overflow-hidden p-4 pt-[4.5rem] md:p-6 md:pt-6 flex flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto lb-scroll">
-            {TAB_RENDER[activeTab]?.()}
+            <Suspense fallback={<p className="p-4 text-sm lb-text-muted">Chargement…</p>}>
+              {TAB_RENDER[activeTab]?.()}
+            </Suspense>
           </div>
         </main>
       </div>

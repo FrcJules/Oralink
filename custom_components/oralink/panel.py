@@ -256,12 +256,12 @@ def ws_get_dhcp(hass, connection, msg):
     static_leases_raw = data.get("dhcp_static_leases", [])
     static_macs: set[str] = {(l.get("Mac Address") or "").upper() for l in static_leases_raw}
 
-    # Build name map from coordinator devices (key is MAC, possibly lowercase).
-    # coordinator.data["devices"] only contains WiFi devices, but it has the best
-    # friendly names (set via Devices.Device.{mac}:setName).
+    # Noms des appareils (Devices.Device.{mac}:setName) — vue complète Wi-Fi +
+    # filaires : avec les seuls appareils suivis (Wi-Fi), les baux des serveurs
+    # et équipements filaires restaient sans nom.
     mac_to_name: dict[str, str] = {
         mac.lower(): d.get("Name", "")
-        for mac, d in data.get("devices", {}).items()
+        for mac, d in (data.get("all_devices") or data.get("devices", {})).items()
         if d.get("Name")
     }
 

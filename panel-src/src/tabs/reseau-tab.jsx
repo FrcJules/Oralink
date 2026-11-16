@@ -461,7 +461,7 @@ function NatSection() {
                       <td className="py-1.5 pr-3 lb-text-muted">{rule.destination_ip || "—"}</td>
                       <td className="py-1.5 pr-3 lb-text-muted">{rule.external_port || "—"}</td>
                       <td className="py-1.5 pr-3 lb-text-muted">{rule.internal_port || "—"}</td>
-                      <td className="py-1.5 pr-3 lb-text-muted">{rule.protocol || "—"}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{PROTOCOL_LABELS[rule.protocol] ?? formatProtocols(rule.protocol)}</td>
                       <td className="py-1.5 text-right">
                         <button
                           onClick={() => handleDelete(rule.id, rule.name)}

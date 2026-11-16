@@ -15,6 +15,8 @@ node dump_reads.mjs "$READS" oralink_reads.json   # données vues par Oralink
 python3 -I fetch_box.py                            # données brutes de la box → box_raw.json
 python3 -I compare.py                              # comparaison champ par champ
 node write_tests.mjs                               # écritures réversibles
+CHROME=~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome \
+  node browser_check.mjs                           # panel dans un vrai Chromium (onglets, erreurs console)
 ```
 
 Les fichiers `*.json` générés contiennent des données du réseau local : ne pas
