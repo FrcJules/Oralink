@@ -28,6 +28,13 @@ def test_mac_glued_to_underscore():
     assert du.pseudonymize_macs({"x": "_2C:93:FB:BB:55:90_eth0"}) == {"x": "_MAC_001_eth0"}
 
 
+def test_dhcp_client_id_prefix():
+    # ClientID DHCP = type matériel (01) + MAC : la MAC doit être masquée,
+    # et pseudonymisée comme la même MAC ailleurs.
+    out = du.pseudonymize_macs({"01:2c:93:fb:bb:55:90": {"MACAddress": "2C:93:FB:BB:55:90"}})
+    assert out == {"01:MAC_001": {"MACAddress": "MAC_001"}}
+
+
 def test_non_mac_untouched():
     data = {"ip": "192.168.1.10", "ipv6": "2a01:db8::5", "ipv6b": "fe80::aa:bb:cc:dd:ee:ff:1",
             "time": "12:00:00", "n": 1.5}

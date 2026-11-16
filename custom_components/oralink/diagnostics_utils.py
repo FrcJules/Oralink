@@ -14,8 +14,10 @@ import re
 from typing import Any
 
 # Pas de \b : une MAC peut être collée à « _ » (ex. "_2C:93:FB:BB:55:90_eth0").
-# On exclut seulement les voisins hexadécimaux ou « : » (adresses IPv6…).
-MAC_RE = re.compile(r"(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f:])")
+# Avant : seul un chiffre hexa est exclu — un « : » doit rester possible pour
+# les identifiants client DHCP « 01:<MAC> ». Après : ni hexa ni « : », pour ne
+# pas découper une adresse IPv6 ou un identifiant plus long.
+MAC_RE = re.compile(r"(?<![0-9A-Fa-f])(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f:])")
 
 
 def pseudonymize_macs(data: Any) -> Any:
