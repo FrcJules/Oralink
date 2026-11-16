@@ -17,7 +17,12 @@ export function useWsAction() {
       if (success) toast?.success(success);
       return result;
     } catch (err) {
-      toast?.error(errorMessage ?? `Erreur : ${String(err.message ?? err)}`);
+      // Les commandes de modification exigent un compte administrateur HA
+      // (`@websocket_api.require_admin` côté panel.py).
+      const text = err?.code === "unauthorized"
+        ? "Action réservée aux administrateurs Home Assistant."
+        : (errorMessage ?? `Erreur : ${String(err?.message ?? err)}`);
+      toast?.error(text);
       throw err;
     }
   }, [callWs, toast]);

@@ -481,62 +481,69 @@ function NatSection() {
   );
 }
 
+// Protocoles IP courants pour la redirection de protocole (numéros IANA)
+const PTF_PROTOCOLS = [
+  { value: "47", label: "GRE (47) — VPN PPTP" },
+  { value: "50", label: "ESP (50) — VPN IPsec" },
+  { value: "51", label: "AH (51) — IPsec" },
+  { value: "41", label: "IPv6-in-IPv4 (41)" },
+  { value: "custom", label: "Autre (numéro)…" },
+];
+const PTF_PROTOCOL_NAMES = { 1: "ICMP", 6: "TCP", 17: "UDP", 41: "IPv6", 47: "GRE", 50: "ESP", 51: "AH" };
+const formatProtocols = (value) => String(value || "")
+  .split(",").filter(Boolean)
+  .map((n) => PTF_PROTOCOL_NAMES[n] ? `${PTF_PROTOCOL_NAMES[n]} (${n})` : n).join(", ") || "—";
+
+const EMPTY_PTF = { name: "", protocol: "47", custom: "", destination_ip: "" };
+
 function AddPtfRuleForm({ onSaved }) {
   const runAction = useWsAction();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    name: "", protocol: "TCP",
-    external_port_start: "", external_port_end: "",
-    internal_port_start: "", internal_port_end: "",
-  });
+  const [form, setForm] = useState(EMPTY_PTF);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const protocol = form.protocol === "custom" ? form.custom.trim() : form.protocol;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     setFormError(null);
     try {
-      await runAction({ type: "livebox/ptf/add", ...form }, { success: `Règle « ${form.name} » ajoutée.` });
-      setForm({ name: "", protocol: "TCP", external_port_start: "", external_port_end: "", internal_port_start: "", internal_port_end: "" });
+      await runAction(
+        { type: "livebox/ptf/add", name: form.name.trim(), protocol, destination_ip: form.destination_ip.trim() },
+        { success: `Règle « ${form.name.trim()} » ajoutée.` },
+      );
+      setForm(EMPTY_PTF);
       setOpen(false);
       onSaved();
     } catch (err) { setFormError(err); } finally { setSaving(false); }
   };
 
-  if (!open) return <button onClick={() => setOpen(true)} className="lb-btn-primary mb-3">+ Ajouter une règle PTF</button>;
+  if (!open) return <button onClick={() => setOpen(true)} className="lb-btn-primary mb-3">+ Ajouter une redirection de protocole</button>;
 
   return (
     <form onSubmit={handleSubmit} className="mb-4 grid gap-2 rounded-lg border lb-border p-3 sm:grid-cols-3">
       <label className="flex flex-col gap-1 text-xs lb-text-muted">
         Nom de la règle
-        <input value={form.name} onChange={set("name")} required className="lb-input" />
+        <input value={form.name} onChange={set("name")} required maxLength={64} className="lb-input" />
       </label>
       <label className="flex flex-col gap-1 text-xs lb-text-muted">
-        Protocole
+        Protocole IP
         <select value={form.protocol} onChange={set("protocol")} className="lb-input">
-          {PROTOCOLS.map((p) => <option key={p} value={p}>{p}</option>)}
+          {PTF_PROTOCOLS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
         </select>
       </label>
-      <span />
-      <label className="flex flex-col gap-1 text-xs lb-text-muted">
-        Port externe début
-        <input value={form.external_port_start} onChange={set("external_port_start")} required placeholder="6000" className="lb-input" />
-      </label>
-      <label className="flex flex-col gap-1 text-xs lb-text-muted">
-        Port externe fin
-        <input value={form.external_port_end} onChange={set("external_port_end")} required placeholder="6010" className="lb-input" />
-      </label>
-      <span />
-      <label className="flex flex-col gap-1 text-xs lb-text-muted">
-        Port interne début
-        <input value={form.internal_port_start} onChange={set("internal_port_start")} required placeholder="6000" className="lb-input" />
-      </label>
-      <label className="flex flex-col gap-1 text-xs lb-text-muted">
-        Port interne fin
-        <input value={form.internal_port_end} onChange={set("internal_port_end")} required placeholder="6010" className="lb-input" />
+      {form.protocol === "custom" ? (
+        <label className="flex flex-col gap-1 text-xs lb-text-muted">
+          Numéro de protocole (0-255)
+          <input value={form.custom} onChange={set("custom")} required pattern="\d{1,3}" placeholder="47" className="lb-input" />
+        </label>
+      ) : <span />}
+      <label className="flex flex-col gap-1 text-xs lb-text-muted sm:col-span-2">
+        IP de destination (machine du réseau)
+        <input value={form.destination_ip} onChange={set("destination_ip")} required placeholder="192.168.1.x" className="lb-input font-mono" />
       </label>
       <span />
       <div className="flex gap-2 sm:col-span-3">
@@ -562,10 +569,10 @@ function PtfSection() {
   };
 
   return (
-    <Card title="Redirection de protocole (Port Triggering)">
+    <Card title="Redirection de protocole">
       <p className="mb-3 text-xs lb-text-muted">
-        Contrairement au NAT, la redirection s'active automatiquement quand une machine du réseau
-        émet du trafic sortant sur le port déclencheur — pas besoin d'IP de destination fixe.
+        Redirige un protocole IP entier (sans notion de port) vers une machine du réseau — typiquement
+        GRE pour un serveur VPN PPTP, ou ESP/AH pour IPsec. Pour des ports TCP/UDP, utilisez le NAT ci-dessus.
       </p>
       <StateBox loading={loading} error={error} />
       {data && (
@@ -580,9 +587,9 @@ function PtfSection() {
                 <thead className="sticky top-0 text-xs uppercase lb-text-muted bg-[var(--card-background-color)]">
                   <tr>
                     <th className="py-1.5 pr-3">Nom</th>
-                    <th className="py-1.5 pr-3">Ports ext.</th>
-                    <th className="py-1.5 pr-3">Ports int.</th>
                     <th className="py-1.5 pr-3">Protocole</th>
+                    <th className="py-1.5 pr-3">Destination</th>
+                    <th className="py-1.5 pr-3">État</th>
                     <th className="py-1.5" />
                   </tr>
                 </thead>
@@ -590,9 +597,9 @@ function PtfSection() {
                   {data.map((rule) => (
                     <tr key={rule.id} className="border-t lb-border">
                       <td className="py-1.5 pr-3 font-medium">{rule.name ?? rule.id ?? "—"}</td>
-                      <td className="py-1.5 pr-3 lb-text-muted">{rule.external_port_start}–{rule.external_port_end}</td>
-                      <td className="py-1.5 pr-3 lb-text-muted">{rule.internal_port_start}–{rule.internal_port_end}</td>
-                      <td className="py-1.5 pr-3 lb-text-muted">{rule.protocol || "—"}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{formatProtocols(rule.protocol)}</td>
+                      <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{rule.destination_ip || "—"}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">{rule.enable ? "Active" : "Inactive"}</td>
                       <td className="py-1.5 text-right">
                         <button
                           onClick={() => handleDelete(rule.id, rule.name)}

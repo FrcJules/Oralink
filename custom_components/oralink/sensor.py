@@ -22,8 +22,9 @@ from homeassistant.const import (
     UnitOfTemperature,
     UnitOfTime,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -500,23 +501,44 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
-    # Per-device sensors — traffic rate (all devices) + signal strength (WiFi only)
-    device_entities: list[SensorEntity] = []
-    for mac, device in coordinator.data.get("devices", {}).items():
-        device_key = device.get("Key") or mac
-        device_name = device.get("Name") or mac
-        device_entities.append(
-            LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "rx")
+    # Per-device sensors — traffic rate (all devices) + signal strength (WiFi only).
+    # Ajoutés dynamiquement (comme les device_tracker / boutons WoL) : un appareil
+    # apparu après le démarrage obtient ses capteurs sans recharger l'intégration.
+    traffic_tracked: set[str] = set()
+    signal_tracked: set[str] = set()
+
+    @callback
+    def async_add_device_sensors() -> None:
+        device_entities: list[SensorEntity] = []
+        for mac, device in coordinator.data.get("devices", {}).items():
+            device_key = device.get("Key") or mac
+            device_name = device.get("Name") or mac
+            if mac not in traffic_tracked:
+                traffic_tracked.add(mac)
+                device_entities.append(
+                    LiveboxDeviceTrafficSensor(
+                        coordinator, device_key, device_name, mac, "rx"
+                    )
+                )
+                device_entities.append(
+                    LiveboxDeviceTrafficSensor(
+                        coordinator, device_key, device_name, mac, "tx"
+                    )
+                )
+            if mac not in signal_tracked and device.get("OperatingFrequencyBand"):
+                signal_tracked.add(mac)
+                device_entities.append(
+                    LiveboxDeviceSignalSensor(coordinator, device_key, device_name, mac)
+                )
+        if device_entities:
+            async_add_entities(device_entities)
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass, coordinator.signal_device_new, async_add_device_sensors
         )
-        device_entities.append(
-            LiveboxDeviceTrafficSensor(coordinator, device_key, device_name, mac, "tx")
-        )
-        if device.get("OperatingFrequencyBand"):
-            device_entities.append(
-                LiveboxDeviceSignalSensor(coordinator, device_key, device_name, mac)
-            )
-    if device_entities:
-        async_add_entities(device_entities)
+    )
+    async_add_device_sensors()
 
 
 class LiveboxSensor(LiveboxEntity, SensorEntity):  # pyrefly: ignore[inconsistent-inheritance]

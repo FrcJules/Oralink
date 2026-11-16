@@ -1,6 +1,4 @@
-import { useState } from "react";
 import { useWsData } from "../lib/use-ws-data.js";
-import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox, Row } from "../components/card.jsx";
 
 function ServiceBadge({ label, active }) {

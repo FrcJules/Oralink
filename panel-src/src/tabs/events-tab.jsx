@@ -4,10 +4,16 @@ import { Card, StateBox } from "../components/card.jsx";
 
 const PAGE_SIZE = 50;
 
+const EVENT_STYLES = {
+  connected: { dot: "bg-emerald-500", text: "text-emerald-600", label: "↑ connecté" },
+  disconnected: { dot: "bg-[var(--disabled-text-color)]", text: "lb-text-muted", label: "↓ déconnecté" },
+  new: { dot: "bg-amber-500", text: "text-amber-600 font-semibold", label: "★ nouvel appareil" },
+};
+
 export function EventsTab() {
   const { data, loading, error } = useWsData("livebox/events", {}, 30_000);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("all"); // "all" | "connected" | "disconnected"
+  const [filter, setFilter] = useState("all"); // "all" | "connected" | "disconnected" | "new"
   const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
@@ -30,9 +36,12 @@ export function EventsTab() {
   return (
     <Card title="Journal d'événements" fill>
       <p className="mb-3 flex-shrink-0 text-xs lb-text-muted">
-        Connexions et déconnexions détectées entre deux rafraîchissements (~1 min).
-        Pour des notifications en temps réel, créez une automatisation HA sur les
-        capteurs de présence des appareils suivis.
+        Connexions, déconnexions et appareils jamais vus, détectés entre deux
+        rafraîchissements (~1 min) et conservés après un redémarrage de HA.
+        Pour être notifié, créez une automatisation HA déclenchée par l'événement{" "}
+        <code className="font-mono">oralink_device_event</code> (champ{" "}
+        <code className="font-mono">event</code> : <code className="font-mono">new</code>,{" "}
+        <code className="font-mono">connected</code> ou <code className="font-mono">disconnected</code>).
       </p>
 
       {/* Filters */}
@@ -48,6 +57,7 @@ export function EventsTab() {
             { value: "all", label: "Tous" },
             { value: "connected", label: "Connexions" },
             { value: "disconnected", label: "Déconnexions" },
+            { value: "new", label: "Nouveaux" },
           ].map(({ value, label }) => (
             <button
               key={value}
@@ -88,24 +98,23 @@ export function EventsTab() {
               </tr>
             </thead>
             <tbody>
-              {visible.map((e, i) => (
-                <tr key={i} className="border-t lb-border hover:bg-[var(--secondary-background-color)]/50">
+              {visible.map((e, i) => {
+                const style = EVENT_STYLES[e.event] ?? EVENT_STYLES.disconnected;
+                return (
+                <tr key={`${e.time}-${e.mac}-${e.event}-${i}`} className="border-t lb-border hover:bg-[var(--secondary-background-color)]/50">
                   <td className="py-1.5 pl-3 pr-2">
-                    <span className={`inline-block h-2 w-2 rounded-full ${
-                      e.event === "connected" ? "bg-emerald-500" : "bg-[var(--disabled-text-color)]"
-                    }`} />
+                    <span className={`inline-block h-2 w-2 rounded-full ${style.dot}`} />
                   </td>
                   <td className="py-1.5 pr-3 font-medium lb-text">
                     {e.name || "—"}
-                    <span className={`ml-1.5 text-xs ${e.event === "connected" ? "text-emerald-600" : "lb-text-muted"}`}>
-                      {e.event === "connected" ? "↑ connecté" : "↓ déconnecté"}
-                    </span>
+                    <span className={`ml-1.5 text-xs ${style.text}`}>{style.label}</span>
                   </td>
                   <td className="py-1.5 pr-3 lb-text-muted">{e.ip || "—"}</td>
                   <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{e.mac}</td>
-                  <td className="py-1.5 pr-3 text-right text-xs lb-text-muted whitespace-nowrap">{e.time}</td>
+                  <td className="py-1.5 pr-3 text-right text-xs lb-text-muted whitespace-nowrap">{formatTime(e.time)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {hasMore && (
@@ -123,4 +132,13 @@ export function EventsTab() {
       )}
     </Card>
   );
+}
+
+/** "2026-11-16 12:19:54.123456+01:00" → "16/11 12:19:54" (heure locale). */
+function formatTime(value) {
+  const date = value ? new Date(value.replace(" ", "T")) : null;
+  if (!date || Number.isNaN(date.getTime())) return value || "—";
+  return date.toLocaleString("fr-FR", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
 }

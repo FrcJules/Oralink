@@ -27,17 +27,26 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 _LOGGER = logging.getLogger(__name__)
 
 
-_PANEL_BUILD = "b80"  # bump whenever the JS bundle changes
+_PANEL_BUILD = "b83"  # bump whenever the JS bundle changes
+
+
+def _read_manifest_version() -> str:
+    try:
+        manifest = Path(__file__).parent / "manifest.json"
+        return json.loads(manifest.read_text(encoding="utf-8")).get("version", "dev")
+    except Exception:
+        return "dev"
+
+
+# Lu une seule fois à l'import du module (HA importe les intégrations hors de
+# la boucle d'événements) : lire le fichier dans async_setup_entry déclenchait
+# l'avertissement « Detected blocking call to read_text … inside the event loop ».
+_MANIFEST_VERSION = _read_manifest_version()
 
 
 def _panel_module_url() -> str:
     """Return cache-busted React panel module URL."""
-    try:
-        manifest = Path(__file__).parent / "manifest.json"
-        version = json.loads(manifest.read_text(encoding="utf-8")).get("version", "dev")
-    except Exception:
-        version = "dev"
-    return f"/livebox_panel/react-panel/livebox-panel-react.js?v={version}-{_PANEL_BUILD}"
+    return f"/livebox_panel/react-panel/livebox-panel-react.js?v={_MANIFEST_VERSION}-{_PANEL_BUILD}"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
