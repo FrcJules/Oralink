@@ -64,7 +64,7 @@ export function EventsTab() {
               onClick={() => { setFilter(value); setPage(1); }}
               className={`px-2.5 py-1.5 ${
                 filter === value
-                  ? "bg-[var(--primary-color)] text-[var(--text-primary-color)]"
+                  ? "lb-sidebar-active font-medium"
                   : "lb-text-muted hover:bg-[var(--secondary-background-color)]"
               }`}
             >

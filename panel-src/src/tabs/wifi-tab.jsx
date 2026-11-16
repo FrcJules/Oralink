@@ -6,33 +6,25 @@ import { useWsAction } from "../lib/use-ws-action.js";
 import { useDeviceNames } from "../lib/use-device-names.js";
 import { Card, StateBox } from "../components/card.jsx";
 import { useConfirm } from "../lib/confirm-context.jsx";
+import { formatRate, formatSignal } from "../lib/format.js";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function Badge({ children, green, orange, red, blue }) {
-  const cls = green ? "bg-emerald-100 text-emerald-700"
-    : orange ? "bg-orange-100 text-orange-700"
-    : red ? "bg-red-100 text-red-700"
-    : blue ? "bg-blue-100 text-blue-700"
-    : "bg-[var(--secondary-background-color)] lb-text";
-  return (
-    <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${cls}`}>
-      {children}
-    </span>
-  );
+// Couleurs d'état uniquement pour les états (vert / orange / rouge) ; le
+// reste en neutre. Classes lb-pill-* : lisibles en thème clair et sombre.
+function Badge({ children, green, orange, red }) {
+  const level = green ? "ok" : orange ? "warn" : red ? "bad" : "neutral";
+  return <span className={`lb-pill lb-pill-${level}`}>{children}</span>;
 }
 
 function ifaceBand(iface) {
-  if (iface.includes("2g0")) return "2.4 GHz";
+  if (iface.includes("2g0")) return "2,4 GHz";
   if (iface.includes("5g0")) return "5 GHz";
   return "6 GHz";
 }
 
-function fmtRate(kbps) {
-  if (kbps == null) return null;
-  if (kbps >= 1000) return `${(kbps / 1000).toFixed(0)} Mbit/s`;
-  return `${kbps} Kbit/s`;
-}
+// Débit de liaison d'une station, fourni en kbit/s par la box.
+const fmtRate = (kbps) => (kbps == null ? null : formatRate(kbps / 1000));
 
 // ── Radio row (compact) ───────────────────────────────────────────────────────
 
@@ -42,7 +34,7 @@ function RadioRow({ radio, onSet }) {
   const [auto, setAuto] = useState(radio.auto_channel ?? false);
   const [saving, setSaving] = useState(false);
 
-  const bandLabel = { "2.4GHz": "2.4 GHz", "5GHz": "5 GHz", "6GHz": "6 GHz" }[radio.band] ?? radio.band ?? radio.iface;
+  const bandLabel = { "2.4GHz": "2,4 GHz", "5GHz": "5 GHz", "6GHz": "6 GHz" }[radio.band] ?? radio.band ?? radio.iface;
   const up = radio.status === "Up";
 
   const handleSave = async () => {
@@ -56,7 +48,7 @@ function RadioRow({ radio, onSet }) {
   return (
     <div className="border-b lb-border last:border-0">
       <div className="flex items-center gap-3 py-2">
-        <span className={`size-2 rounded-full flex-shrink-0 ${up ? "bg-emerald-500" : "bg-gray-400"}`} />
+        <span className={`lb-dot ${up ? "lb-dot-ok" : "lb-dot-neutral"}`} title={up ? "Active" : "Inactive"} />
         <span className="w-16 text-sm font-semibold lb-text">{bandLabel}</span>
         <span className="flex-1 text-xs lb-text-muted flex flex-wrap gap-x-3 gap-y-0.5">
           <span>Canal {radio.auto_channel ? `Auto (${radio.channel})` : radio.channel}</span>
@@ -117,8 +109,8 @@ function StationTable({ stations, onKick }) {
             <th className="py-1 pr-3">Nom</th>
             <th className="py-1 pr-3">MAC</th>
             <th className="py-1 pr-3">IP</th>
-            <th className="py-1 pr-3">RSSI</th>
-            <th className="py-1 pr-3">↓ Rate</th>
+            <th className="py-1 pr-3">Signal</th>
+            <th className="py-1 pr-3">Liaison ↓</th>
             <th className="py-1" />
           </tr>
         </thead>
@@ -128,7 +120,7 @@ function StationTable({ stations, onKick }) {
               <td className="py-1 pr-3 font-medium lb-text">{resolveName(s.mac, "—")}</td>
               <td className="py-1 pr-3 font-mono lb-text-muted">{s.mac}</td>
               <td className="py-1 pr-3 lb-text-muted">{s.ip ?? "—"}</td>
-              <td className="py-1 pr-3 lb-text-muted">{s.rssi != null ? `${s.rssi} dBm` : "—"}</td>
+              <td className="py-1 pr-3 lb-text-muted">{formatSignal(s.rssi) ?? "—"}</td>
               <td className="py-1 pr-3 lb-text-muted">{fmtRate(s.tx_rate) ?? "—"}</td>
               <td className="py-1">
                 <button
@@ -184,11 +176,11 @@ function VapRow({ vap, onKick, onSet }) {
         >
           {expanded ? <ChevronDown className="size-3.5 lb-text-muted" /> : <ChevronRight className="size-3.5 lb-text-muted" />}
         </button>
-        <span className={`size-2 rounded-full flex-shrink-0 ${up ? "bg-emerald-500" : "bg-gray-400"}`} />
+        <span className={`lb-dot ${up ? "lb-dot-ok" : "lb-dot-neutral"}`} />
         <span className="flex-1 text-sm font-medium lb-text truncate">{vap.ssid ?? vap.iface}</span>
         <span className="text-xs lb-text-muted">{band}</span>
-        {isGuest && <Badge orange>Invité</Badge>}
-        {!up && <Badge red>Down</Badge>}
+        {isGuest && <Badge>Invité</Badge>}
+        {!up && <Badge>Inactif</Badge>}
         {vap.hidden && <Badge>Masqué</Badge>}
         <span className="w-14 text-right text-xs lb-text-muted">
           {count > 0 ? `${count} client${count > 1 ? "s" : ""}` : "0 client"}

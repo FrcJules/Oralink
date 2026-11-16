@@ -18,26 +18,23 @@ import { useConfirm } from "../lib/confirm-context.jsx";
 import {
   DEVICE_ICON_OPTIONS, deviceIconKey, isSwitchDevice, renderDeviceIcon,
 } from "../lib/device-types.jsx";
+import { interfaceLabel, isWifiInterface, signalQuality } from "../lib/labels.js";
+import { formatDbm } from "../lib/format.js";
+
+const SIGNAL_BADGE = {
+  ok: { background: "color-mix(in srgb, var(--lb-ok) 18%, transparent)", color: "var(--lb-ok)" },
+  warn: { background: "color-mix(in srgb, var(--lb-warn) 20%, transparent)", color: "var(--lb-warn-text)" },
+  bad: { background: "color-mix(in srgb, var(--lb-bad) 18%, transparent)", color: "var(--lb-bad)" },
+};
 
 // ── Libellés d'interfaces ────────────────────────────────────────────────────
 
-const PORT_LABELS = {
-  ETH0: "LAN 2.5G", ETH1: "LAN 1", ETH2: "LAN 2", ETH3: "LAN 3", ETH4: "LAN 4",
-  eth0: "LAN 2.5G", eth1: "LAN 1", eth2: "LAN 2", eth3: "LAN 3", eth4: "LAN 4",
-};
-const WIFI_LABELS = {
-  vap2g0priv0: "2.4 GHz", vap2g0priv1: "2.4 GHz",
-  vap5g0priv0: "5 GHz", vap5g0priv1: "5 GHz",
-  vap6g0priv0: "6 GHz",
-  wlan0: "2.4 GHz", wl0: "5 GHz",
-  wlguest2: "2.4 GHz (Invité)", wlguest5: "5 GHz (Invité)",
-};
-
+// Table partagée (lib/labels.js) : « Port LAN 2 », « Wi-Fi 5 GHz »…
 function isWifi(iface) {
-  return !!(iface && (iface.startsWith("vap") || iface.startsWith("wl")));
+  return isWifiInterface(iface);
 }
 function ifaceLabel(iface) {
-  return WIFI_LABELS[iface] ?? PORT_LABELS[iface] ?? iface;
+  return interfaceLabel(iface) ?? iface;
 }
 function ifaceIcon(iface) {
   if (!iface || iface === "__other__") return "generic";
@@ -310,7 +307,8 @@ function DeviceNode({ data }) {
           <div className="flex items-center gap-1">
             <span className="font-mono text-[10px] truncate" style={{ color: "var(--secondary-text-color)" }}>{data.ip || "—"}</span>
             {!inactive && data.signal != null && (
-              <span className="text-[9px] px-1 rounded bg-green-500/20 text-green-600 shrink-0">{data.signal} dBm</span>
+              <span className="text-[9px] px-1 rounded shrink-0" style={SIGNAL_BADGE[signalQuality(data.signal)?.level ?? "ok"]}
+                title={signalQuality(data.signal)?.label}>{formatDbm(data.signal, 0)}</span>
             )}
             {inactive && <span className="text-[9px] px-1 rounded bg-slate-400/20 text-slate-400 shrink-0">hors ligne</span>}
           </div>

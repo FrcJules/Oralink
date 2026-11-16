@@ -1,8 +1,18 @@
-import { useMemo, useState } from "react";
-import { Download } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Download, LayoutGrid, List } from "lucide-react";
 import { useWsData } from "../lib/use-ws-data.js";
 import { Card, StateBox } from "../components/card.jsx";
 import { DeviceTable } from "../components/device-table.jsx";
+import { DeviceCards } from "../components/device-cards.jsx";
+import { interfaceLabel, isWifiInterface } from "../lib/labels.js";
+import { parseDate } from "../lib/format.js";
+
+const DAY_MS = 24 * 3600 * 1000;
+const VIEW_KEY = "oralink.devices.view";
+
+function readView() {
+  try { return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "cards"; } catch { return "cards"; }
+}
 
 const FILTERS = [
   { value: "all", label: "Tous" },
@@ -11,8 +21,8 @@ const FILTERS = [
   { value: "wired", label: "Filaires" },
 ];
 
-// Un appareil Wi-Fi a une bande renseignée (2.4GHz / 5GHz / 6GHz).
-const isWifi = (d) => Boolean(d.band);
+// Un appareil Wi-Fi a une bande renseignée (2.4GHz / 5GHz / 6GHz) ou une VAP.
+const isWifi = (d) => Boolean(d.band) || isWifiInterface(d.interface);
 
 const CSV_COLUMNS = [
   ["Nom", (d) => d.name],
@@ -20,8 +30,8 @@ const CSV_COLUMNS = [
   ["MAC", (d) => d.mac],
   ["Actif", (d) => (d.active ? "oui" : "non")],
   ["Type", (d) => d.type],
-  ["Connexion", (d) => (isWifi(d) ? `Wi-Fi ${d.band}` : "Filaire")],
-  ["Interface", (d) => d.interface],
+  ["Connexion", (d) => (isWifi(d) ? "Wi-Fi" : "Filaire")],
+  ["Interface", (d) => interfaceLabel(d.interface, d.band)],
   ["Signal (dBm)", (d) => d.signal ?? ""],
   ["Fabricant", (d) => d.manufacturer],
   ["Première détection", (d) => d.first_seen],
@@ -48,10 +58,58 @@ function exportCsv(devices) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function ViewToggle({ view, onChange }) {
+  const options = [
+    { value: "cards", label: "Cartes", Icon: LayoutGrid },
+    { value: "list", label: "Liste", Icon: List },
+  ];
+  return (
+    <div className="flex overflow-hidden rounded-md border lb-border text-xs" role="group" aria-label="Affichage">
+      {options.map(({ value, label, Icon }) => (
+        <button
+          key={value}
+          onClick={() => onChange(value)}
+          aria-pressed={view === value}
+          className={`inline-flex items-center gap-1 px-2.5 py-1.5 ${
+            view === value ? "lb-sidebar-active font-medium" : "lb-text-muted hover:bg-[var(--secondary-background-color)]"
+          }`}
+        >
+          <Icon className="size-3.5" /> {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function DevicesTab() {
-  const { data, loading, error } = useWsData("livebox/devices", {}, 3_000);
+  const { data, loading, error, refresh } = useWsData("livebox/devices", {}, 3_000);
+  const { data: topology } = useWsData("livebox/topology", {}, 60_000);
+  const { data: parentOverrides } = useWsData("livebox/topology/parents", {}, 60_000);
+  const { data: events } = useWsData("livebox/events", {}, 60_000);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [view, setView] = useState(readView);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const changeView = (v) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* stockage indisponible */ }
+  };
+
+  // « Nouveau » : apparu dans les dernières 24 h (journal d'événements, ou
+  // première détection par la box).
+  const newMacs = useMemo(() => {
+    const set = new Set();
+    const recent = (v) => { const d = parseDate(v); return d && now - d.getTime() < DAY_MS; };
+    for (const e of events ?? []) if (e.event === "new" && recent(e.time)) set.add(e.mac);
+    for (const d of data ?? []) if (recent(d.first_seen)) set.add(d.mac);
+    return set;
+  }, [events, data, now]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -88,9 +146,10 @@ export function DevicesTab() {
                   <button
                     key={value}
                     onClick={() => setFilter(value)}
+                    aria-pressed={filter === value}
                     className={`px-2.5 py-1.5 ${
                       filter === value
-                        ? "bg-[var(--primary-color)] text-[var(--text-primary-color)]"
+                        ? "lb-sidebar-active font-medium"
                         : "lb-text-muted hover:bg-[var(--secondary-background-color)]"
                     }`}
                   >
@@ -106,8 +165,19 @@ export function DevicesTab() {
               >
                 <Download className="size-3.5" /> CSV
               </button>
+              <ViewToggle view={view} onChange={changeView} />
             </div>
-            <DeviceTable devices={filtered} />
+            {view === "cards" ? (
+              <DeviceCards
+                devices={filtered}
+                topology={topology}
+                parentOverrides={parentOverrides}
+                newMacs={newMacs}
+                onChanged={refresh}
+              />
+            ) : (
+              <DeviceTable devices={filtered} />
+            )}
           </>
         )}
       </Card>

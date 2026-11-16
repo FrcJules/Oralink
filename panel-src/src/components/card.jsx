@@ -1,3 +1,5 @@
+import { isEmptyValue } from "../lib/labels.js";
+
 /**
  * Card — conteneur de base pour toutes les sections du panel.
  *
@@ -43,7 +45,10 @@ export function Card({ title, actions, children, id, fill }) {
  * de valeur sur plusieurs lignes, une par élément — plus lisible, et plus de
  * risque de débordement.
  */
-export function Row({ label, value }) {
+export function Row({ label, value, keepEmpty = false }) {
+  // Valeur vide ou sentinelle Livebox (null, "", « 0001-01-01T00:00:00Z »…) :
+  // la ligne est masquée plutôt que d'afficher un « — » ou une date absurde.
+  if (!keepEmpty && isEmptyValue(value)) return null;
   const items = typeof value === "string" && value.includes(",")
     ? value.split(",").map((v) => v.trim()).filter(Boolean)
     : null;
