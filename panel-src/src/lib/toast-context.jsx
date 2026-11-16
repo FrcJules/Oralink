@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useShadowContainer } from "./shadow-container-context.jsx";
 
@@ -32,10 +32,12 @@ export function ToastProvider({ children }) {
     timers.current.set(id, setTimeout(() => dismiss(id), 5000));
   }, [dismiss]);
 
-  const api = useRef({
+  // Identité stable (push ne change jamais) : les consommateurs peuvent mettre
+  // l'API toast dans leurs dépendances sans se re-déclencher.
+  const api = useMemo(() => ({
     success: (message) => push(message, "success"),
     error: (message) => push(message, "error"),
-  }).current;
+  }), [push]);
 
   return (
     <ToastContext.Provider value={api}>

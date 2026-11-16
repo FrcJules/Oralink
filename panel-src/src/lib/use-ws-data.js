@@ -20,9 +20,9 @@ export function useWsData(type, params = {}, interval = null) {
 
   const load = useCallback(() => {
     const seq = ++requestSeq.current;
-    // On first fetch data=null → show spinner. On auto-refresh we already
-    // have data, so keep it visible (no flicker) and just replace silently.
-    setState((s) => ({ ...s, loading: s.data === null, error: null }));
+    // Pas de setState synchrone ici (appelé depuis un effet) : l'état initial
+    // est déjà « loading », et lors d'un rafraîchissement les données
+    // précédentes restent affichées (pas de clignotement) jusqu'à la réponse.
     callWs({ type, ...JSON.parse(paramsKey) })
       .then((data) => {
         if (seq === requestSeq.current) setState({ data, loading: false, error: null });

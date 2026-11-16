@@ -98,7 +98,9 @@ def _find_aiosysbus() -> Path | None:
         import aiosysbus  # noqa: PLC0415
     except ImportError:
         return None
-    return Path(aiosysbus.__file__).parent
+    # Les tests du coordinator remplacent aiosysbus par un stub sans __file__.
+    location = getattr(aiosysbus, "__file__", None)
+    return Path(location).parent if location else None
 
 
 @pytest.mark.skipif(_find_aiosysbus() is None, reason="aiosysbus absent (définir AIOSYSBUS_SRC)")
