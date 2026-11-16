@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.3.0 — 2026-11-17
+
+### Nouveautés
+- **Vue d'ensemble « Statut d'abord »** : bandeau d'état en haut (vert
+  « Internet fonctionne normalement », orange ou rouge si le WAN est coupé ou
+  si le signal fibre est faible ou critique), avec le type et le débit de la
+  fibre, la qualité du signal et la durée depuis le dernier redémarrage. Trois
+  cartes : débit Internet en direct avec courbe de la dernière heure, dernier
+  speedtest, appareils connectés en Wi-Fi et en câble. Carte **« À regarder »**
+  (nouveaux appareils et appels manqués des dernières 24 h, Wi-Fi invité,
+  pare-feu bas). Le détail technique (box, mémoire, WAN, fibre, IPTV,
+  connexion) passe dans des sections repliables, fermées par défaut.
+- **Onglet Appareils en cartes** : regroupées par port LAN, bande Wi-Fi ou
+  répéteur, avec pastille (en ligne, nouveau, très actif, Internet coupé),
+  débits et signal Wi-Fi, et des actions directes : couper ou rétablir
+  Internet, réserver l'IP, réveiller (Wake-on-LAN), renommer. La vue tableau
+  reste disponible via le bouton « Liste » ; recherche, filtres et export CSV
+  marchent dans les deux vues.
+
+### Améliorations
+- **Libellés lisibles partout** : « Port LAN 2 », « Wi-Fi 5 GHz » au lieu de
+  ETH2 / vap5g0priv0 ; états en français (Connecté, Fibre, Pare-feu moyen…) ;
+  signal Wi-Fi qualifié (« −48 dBm · excellent », mêmes seuils que le capteur
+  de signal).
+- **Débits formatés de la même façon dans tous les onglets** : kbit/s sous
+  1 Mbit/s, Mbit/s à une décimale, Gbit/s au-delà, virgule décimale.
+- Les valeurs vides ou factices renvoyées par la box (dont la date
+  « 0001-01-01 ») ne sont plus affichées.
+- Couleurs : l'orange est réservé aux actions et à la navigation, les couleurs
+  vert / orange / rouge aux états et aux alertes ; lisible en thème clair et
+  sombre.
+
+### Corrections
+- Le détail d'un appareil n'affichait jamais « Bloqué » pour un appareil dont
+  l'accès Internet était coupé, et le bouton « Débloquer » restait grisé.
+- Après avoir coupé ou rétabli l'accès Internet d'un appareil, l'état est relu
+  immédiatement au lieu d'attendre le cycle de rafraîchissement suivant.
+
+### Développement
+- Modules partagés `panel-src/src/lib/labels.js` et `format.js`, couverts par
+  des tests `node:test`.
+
 ## 1.2.1 — 2026-11-16
 
 ### Corrections
