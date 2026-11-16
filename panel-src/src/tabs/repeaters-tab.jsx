@@ -4,6 +4,7 @@ import { useWsAction } from "../lib/use-ws-action.js";
 import { useConfirm } from "../lib/confirm-context.jsx";
 import { Card, StateBox, Row } from "../components/card.jsx";
 import { DeviceTable } from "../components/device-table.jsx";
+import { formatDays } from "../lib/format.js";
 
 // ── Config form ────────────────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ function RepeaterInfoPanel({ repeaterKey, repeaterName }) {
               {di.SoftwareVersion && <Row label="Firmware" value={di.SoftwareVersion} />}
               {di.HardwareVersion && <Row label="Matériel" value={di.HardwareVersion} />}
               {di.SerialNumber && <Row label="N° série" value={di.SerialNumber} />}
-              {di.UpTime != null && <Row label="Uptime" value={`${Math.round(di.UpTime / 3600)} h`} />}
+              {di.UpTime != null && <Row label="Allumé depuis" value={formatDays(di.UpTime / 86400)} />}
             </div>
           )}
 

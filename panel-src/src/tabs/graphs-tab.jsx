@@ -4,6 +4,7 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { useWsCommand } from "../lib/hass-context.jsx";
 import { Card, StateBox } from "../components/card.jsx";
 import { InterfacesCard } from "./reseau-tab.jsx";
+import { formatRate } from "../lib/format.js";
 
 function timeLabel(value) {
   if (!value) return "";
@@ -34,11 +35,7 @@ function RateBar({ label, rate, color, max }) {
       <div className="flex items-baseline justify-between">
         <span className="text-xs lb-text-muted">{label}</span>
         <span className="tabular-nums text-sm font-semibold" style={{ color }}>
-          {rate >= 1000
-            ? `${(rate / 1000).toFixed(2)} Gbit/s`
-            : rate >= 1
-            ? `${rate.toFixed(2)} Mbit/s`
-            : `${(rate * 1000).toFixed(0)} Kbit/s`}
+          {formatRate(rate)}
         </span>
       </div>
       <div className="mt-1 h-1 w-full rounded-full bg-[var(--secondary-background-color)]">
@@ -85,9 +82,9 @@ function TrafficChart({ points, hasWan, hasDevice, hasDeviceData }) {
         <LineChart data={points} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--divider-color)" />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={24} />
-          <YAxis tick={{ fontSize: 11 }} unit=" Mb/s" width={68} />
+          <YAxis tick={{ fontSize: 11 }} unit=" Mbit/s" width={74} />
           <Tooltip
-            formatter={(value, name) => [`${value} Mbit/s`, name]}
+            formatter={(value, name) => [formatRate(value), name]}
             contentStyle={{
               background: "var(--card-background-color)",
               border: "1px solid var(--divider-color)",
@@ -200,7 +197,7 @@ export function GraphsTab() {
                     onClick={() => loadDevice(selectedMac, p.hours)}
                     className={`px-2 py-1.5 ${
                       hours === p.hours
-                        ? "bg-[var(--primary-color)] text-[var(--text-primary-color)]"
+                        ? "lb-sidebar-active font-medium"
                         : "lb-text-muted hover:bg-[var(--secondary-background-color)]"
                     }`}
                   >

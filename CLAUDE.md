@@ -284,6 +284,22 @@ l'éditeur d'automatisations) et capteurs `Speedtest Download/Upload/Latency`
 Appareils a une recherche, un filtre Tous/Actifs/Wi-Fi/Filaires et un export
 CSV (séparateur `;`, BOM UTF-8 pour Excel).
 
+**Refonte UI 1.3.0 (2026-11-17)** : libellés et formatage centralisés dans
+`panel-src/src/lib/labels.js` (interfaces ETHx/VAP, états, pare-feu, qualité
+du signal Wi-Fi — seuils de `LiveboxDeviceSignalSensor` —, niveau fibre,
+valeurs vides/sentinelles) et `lib/format.js` (`formatRate` en Mbit/s →
+kbit/s / Mbit/s / Gbit/s, dBm, durées, `parseDate` pour les `str(datetime)`
+Python) — à réutiliser plutôt que de reformater dans un onglet. `Row` masque
+les valeurs vides. Couleurs : orange (`--lb-brand`) = actions/navigation ;
+états via `lb-pill-*`/`lb-dot-*`/`lb-banner-*` (`--lb-ok/warn/bad`) ;
+séries de données en `--lb-data`. Vue d'ensemble « Statut d'abord »
+(`overview-tab.jsx`, `components/status.jsx` : `Pill`, `Collapsible` monté à
+l'ouverture, `Sparkline` SVG sans recharts) ; onglet Appareils en cartes
+(`components/device-cards.jsx`, vue Liste = `DeviceTable`). `livebox/devices`
+expose `wan_blocked`/`static_ip`, `livebox/network` `guest_wifi`/
+`firewall_level`/`wan.error_code`. Le dépôt est public : captures de PR avec
+des données fictives (harnais `hass` simulé), jamais celles de la vraie box.
+
 **Nettoyage panel-src (2026-07-12)** : 6 fichiers d'onglets
 (`dhcp-tab.jsx`, `nat-tab.jsx`, `network-tab.jsx`, `system-tab.jsx`,
 `diagnostics-tab.jsx`, `advanced-tab.jsx`) n'étaient plus importés dans

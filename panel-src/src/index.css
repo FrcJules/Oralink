@@ -17,6 +17,14 @@
 :host {
   --lb-brand: #ff7900;
   --lb-brand-contrast: #ffffff;
+  /* États : variables HA si le thème les définit, sinon secours lisibles en
+     clair comme en sombre (le texte « warn » est assombri pour le contraste). */
+  --lb-ok: var(--success-color, #2e9d57);
+  --lb-warn: var(--warning-color, #e0a000);
+  --lb-warn-text: color-mix(in srgb, var(--lb-warn) 70%, var(--primary-text-color, #000));
+  --lb-bad: var(--error-color, #d23b2f);
+  /* Séries de données (courbes, barres) : neutre, ni orange ni couleur d'état. */
+  --lb-data: var(--info-color, #0288d1);
   /* Flex column so #root can fill the HA panel area. `min-height: 100%` alone
      depends on every ancestor up to <html> resolving a definite height for
      the percentage to work against — when that chain doesn't resolve (it
@@ -117,6 +125,71 @@
     background: color-mix(in srgb, var(--lb-brand) 12%, transparent);
     color: var(--lb-brand);
   }
+
+  /* Couleurs d'état — réservées aux états et alertes (l'orange de marque
+     reste pour les actions et la navigation). Variables HA avec secours. */
+  .lb-pill {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .lb-pill-ok {
+    color: var(--lb-ok);
+    background: color-mix(in srgb, var(--lb-ok) 14%, transparent);
+  }
+  .lb-pill-warn {
+    color: var(--lb-warn-text);
+    background: color-mix(in srgb, var(--lb-warn) 18%, transparent);
+  }
+  .lb-pill-bad {
+    color: var(--lb-bad);
+    background: color-mix(in srgb, var(--lb-bad) 14%, transparent);
+  }
+  .lb-pill-neutral {
+    color: var(--secondary-text-color, #64748b);
+    background: var(--secondary-background-color, #f1f5f9);
+  }
+  .lb-dot { @apply inline-block size-2 flex-shrink-0 rounded-full; }
+  .lb-dot-ok { background: var(--lb-ok); }
+  .lb-dot-warn { background: var(--lb-warn); }
+  .lb-dot-bad { background: var(--lb-bad); }
+  .lb-dot-neutral { background: var(--disabled-text-color, #94a3b8); }
+  .lb-banner {
+    @apply grid items-center gap-3.5 rounded-xl border p-4;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .lb-banner-ok { background: color-mix(in srgb, var(--lb-ok) 12%, var(--card-background-color, #fff)); border-color: color-mix(in srgb, var(--lb-ok) 35%, transparent); }
+  .lb-banner-warn { background: color-mix(in srgb, var(--lb-warn) 14%, var(--card-background-color, #fff)); border-color: color-mix(in srgb, var(--lb-warn) 40%, transparent); }
+  .lb-banner-bad { background: color-mix(in srgb, var(--lb-bad) 12%, var(--card-background-color, #fff)); border-color: color-mix(in srgb, var(--lb-bad) 40%, transparent); }
+  .lb-banner-icon {
+    @apply grid size-11 place-items-center rounded-full;
+    color: #fff;
+  }
+  /* Carte d'appareil posée dans une carte : fond légèrement teinté et
+     bordure marquée pour rester distincte en thème clair comme sombre. */
+  .lb-device-card {
+    @apply rounded-xl border;
+    background: color-mix(in srgb, var(--secondary-background-color, #f1f5f9) 45%, var(--card-background-color, #fff));
+    border-color: color-mix(in srgb, var(--primary-text-color, #0f172a) 14%, transparent);
+  }
+  .lb-chip {
+    @apply inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors;
+    border-color: color-mix(in srgb, var(--primary-text-color, #0f172a) 18%, transparent);
+    background: var(--card-background-color, #fff);
+    color: var(--secondary-text-color, #64748b);
+  }
+  .lb-chip:hover { color: var(--lb-brand); border-color: var(--lb-brand); }
+  .lb-chip-danger:hover { color: var(--lb-bad); border-color: var(--lb-bad); }
+  .lb-chip:disabled { opacity: 0.4; }
+  .lb-surface-2 { background: var(--secondary-background-color, #f1f5f9); }
+  .lb-mono { font-family: var(--code-font-family, ui-monospace, "Roboto Mono", Menlo, monospace); }
+
+  /* Sections repliables « Détails techniques » */
+  .lb-details > summary {
+    @apply flex cursor-pointer list-none items-center gap-2 px-5 py-3.5 text-sm font-semibold;
+    color: var(--primary-text-color, #0f172a);
+  }
+  .lb-details > summary::-webkit-details-marker { display: none; }
+  .lb-details[open] > summary { border-bottom: 1px solid var(--divider-color, #e2e8f0); }
+  .lb-details[open] > summary .lb-chevron { transform: rotate(90deg); }
 
   /* Thin scrollbar for content areas */
   .lb-scroll {

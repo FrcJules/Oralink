@@ -11,6 +11,8 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { useConfirm } from "../lib/confirm-context.jsx";
 import { Card, StateBox, Row } from "../components/card.jsx";
+import { formatRate } from "../lib/format.js";
+import { firewallLabel, stateLabel } from "../lib/labels.js";
 
 // ── Section selector ──────────────────────────────────────────────────────────
 
@@ -85,7 +87,7 @@ function TimeCard() {
           <Row label="Heure locale" value={data.local_time} />
           <Row label="Fuseau horaire" value={data.timezone} />
           <Row label="Synchronisation NTP" value={data.ntp_synced ? "Synchronisé" : "Non synchronisé"} />
-          <Row label="Statut NTP" value={data.ntp_status} />
+          <Row label="Statut NTP" value={stateLabel(data.ntp_status)} />
           {ntpServers && <Row label="Serveurs NTP" value={ntpServers} />}
         </>
       )}
@@ -245,7 +247,7 @@ function SystemSection() {
       <Card title="Sauvegarde et restauration de la configuration">
         {backup && (
           <div className="space-y-2">
-            <Row label="Statut" value={backup.status} />
+            <Row label="Statut" value={stateLabel(backup.status)} />
             <Row label="Dernière sauvegarde" value={backup.last_backup} />
             <ToggleButton label="Sauvegarde automatique" value={backup.auto_enabled} onToggle={handleAutoBackup} />
             <div className="flex gap-2 pt-2">
@@ -759,7 +761,7 @@ function FirewallCard() {
   return (
     <Card title={<span className="flex items-center gap-2"><Shield className="size-4" /> Pare-feu</span>}>
       <StateBox loading={loading} error={error} />
-      {current && <p className="mb-3 text-sm lb-text-muted">Niveau actuel : <strong className="lb-text">{current}</strong></p>}
+      {current && <p className="mb-3 text-sm lb-text-muted">Niveau actuel : <strong className="lb-text">{firewallLabel(current)}</strong></p>}
       <div className="grid gap-2 sm:grid-cols-2">
         {FIREWALL_LEVELS.map((lvl) => (
           <button key={lvl.id} onClick={() => handleSet(lvl.id)}
@@ -805,7 +807,7 @@ function SpeedTestCard() {
               <div className="rounded-lg border lb-border p-3">
                 <p className="mb-2 text-xs font-semibold uppercase lb-text-muted">Débit descendant ↓</p>
                 <p className="text-2xl font-bold lb-text tabular-nums">
-                  {result.downstream.rate_mbit} <span className="text-sm font-normal lb-text-muted">Mbit/s</span>
+                  {formatRate(result.downstream.rate_mbit)}
                 </p>
                 {result.downstream.latency_ms != null && <p className="text-sm lb-text-muted">Latence : {result.downstream.latency_ms} ms</p>}
               </div>
@@ -814,7 +816,7 @@ function SpeedTestCard() {
               <div className="rounded-lg border lb-border p-3">
                 <p className="mb-2 text-xs font-semibold uppercase lb-text-muted">Débit montant ↑</p>
                 <p className="text-2xl font-bold lb-text tabular-nums">
-                  {result.upstream.rate_mbit} <span className="text-sm font-normal lb-text-muted">Mbit/s</span>
+                  {formatRate(result.upstream.rate_mbit)}
                 </p>
                 {result.upstream.latency_ms != null && <p className="text-sm lb-text-muted">Latence : {result.upstream.latency_ms} ms</p>}
               </div>

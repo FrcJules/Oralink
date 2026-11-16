@@ -3,6 +3,7 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { useConfirm } from "../lib/confirm-context.jsx";
 import { Card, StateBox, Row } from "../components/card.jsx";
+import { stateLabel } from "../lib/labels.js";
 
 function VoipTrunksCard() {
   const { data, loading, error } = useWsData("livebox/voip/trunks", {}, 120_000);
@@ -17,7 +18,7 @@ function VoipTrunksCard() {
       {trunks.map((trunk, i) => (
         <div key={i} className="mb-3 rounded-lg border lb-border p-2">
           <p className="mb-1 font-medium text-sm lb-text">{trunk.Name || trunk.name || `Ligne ${i + 1}`}</p>
-          {trunk.Status != null && <Row label="Statut" value={trunk.Status} />}
+          {trunk.Status != null && <Row label="Statut" value={stateLabel(trunk.Status)} />}
           {trunk.Enable != null && <Row label="Activé" value={trunk.Enable ? "Oui" : "Non"} />}
           {trunk.DirectoryNumber && <Row label="Numéro" value={trunk.DirectoryNumber} />}
           {trunk.RegistrarServer && <Row label="Serveur SIP" value={trunk.RegistrarServer} />}

@@ -9,22 +9,18 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 import { useConfirm } from "../lib/confirm-context.jsx";
+import { formatRate } from "../lib/format.js";
+import { interfaceLabel } from "../lib/labels.js";
 
 function fmtBytes(b) {
   if (b == null || b === 0) return "0 o";
   const units = ["o", "Ko", "Mo", "Go", "To"];
   let i = 0; let v = b;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : v.toFixed(0)} ${units[i]}`;
+  return `${(v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : v.toFixed(0)).replace(".", ",")} ${units[i]}`;
 }
 
-function fmtRate(mbit) {
-  if (mbit == null) return "—";
-  if (mbit < 0.01) return "< 0.01 Mbit/s";
-  if (mbit >= 1000) return `${(mbit / 1000).toFixed(2)} Gbit/s`;
-  if (mbit >= 1) return `${mbit.toFixed(2)} Mbit/s`;
-  return `${(mbit * 1000).toFixed(0)} Kbit/s`;
-}
+const fmtRate = formatRate;
 
 const TYPE_COLOR = {
   ont: "#2563eb", wan: "#2563eb",
@@ -43,7 +39,7 @@ function IfaceRow({ iface }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="size-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-          <span className="text-sm font-medium lb-text">{iface.name}</span>
+          <span className="text-sm font-medium lb-text">{interfaceLabel(iface.name)}</span>
           <span className="text-xs lb-text-muted">({iface.key})</span>
         </div>
         <div className="text-right tabular-nums text-xs lb-text-muted">

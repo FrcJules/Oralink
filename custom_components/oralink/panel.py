@@ -197,6 +197,14 @@ def ws_get_devices(hass, connection, msg):
     devices = coordinator.data.get("all_devices") or coordinator.data.get("devices", {})
     traffic = coordinator.data.get("device_traffic", {})
     type_overrides = coordinator.topology_store.type_overrides
+    # État « Internet coupé » (planning ToD forcé à Disable) et baux statiques,
+    # tous deux déjà en cache : les cartes de l'onglet Appareils les affichent
+    # sans une requête par appareil.
+    wan_access = coordinator.data.get("devices_wan_access", {}) or {}
+    static_macs = {
+        (lease.get("Mac Address") or "").upper()
+        for lease in coordinator.data.get("dhcp_static_leases", []) or []
+    }
 
     result = []
     for mac, d in devices.items():
@@ -219,10 +227,21 @@ def ws_get_devices(hass, connection, msg):
             "last_connection": d.get("LastConnection", ""),
             "rate_rx": t.get("rate_rx"),
             "rate_tx": t.get("rate_tx"),
+            "wan_blocked": _wan_blocked(wan_access.get(mac)),
+            "static_ip": mac.upper() in static_macs,
         })
 
     result.sort(key=lambda d: (not d["active"], d["name"].lower()))
     connection.send_result(msg["id"], result)
+
+
+def _wan_blocked(schedule_info) -> bool | None:
+    """Accès Internet coupé ? (None si le planning de l'appareil est inconnu)."""
+    if not isinstance(schedule_info, dict):
+        return None
+    if "scheduleInfo" in schedule_info:  # tolère la forme enveloppée
+        schedule_info = schedule_info.get("scheduleInfo") or {}
+    return schedule_info.get("override") == "Disable"
 
 
 def _global_ipv6(device: dict) -> str:
@@ -547,7 +566,11 @@ def ws_get_network(hass, connection, msg):
             "dns": wan.get("DNSServers"),
             "total_rx_gb": round(counters["BytesReceived"] / 1e9, 2) if counters.get("BytesReceived") else None,
             "total_tx_gb": round(counters["BytesSent"] / 1e9, 2) if counters.get("BytesSent") else None,
+            "error_code": (data.get("connection_extra", {}) or {}).get("error_code"),
         },
+        # Pour l'encart « À regarder » de la vue d'ensemble (valeurs en cache).
+        "guest_wifi": data.get("guest_wifi"),
+        "firewall_level": data.get("firewall_level"),
         "box": {
             "model": infos.get("ProductClass"),
             "model_name": infos.get("ModelName"),
@@ -3050,6 +3073,16 @@ async def ws_set_device_wan_access(hass, connection, msg):
                     "Scheduler", "overrideSchedule",
                     {"type": "ToD", "ID": mac, "override": "Enable"}
                 )
+        # Relit tout de suite le planning de cet appareil : sans ça, la carte
+        # restait sur l'ancien état jusqu'au prochain cycle complet.
+        try:
+            info = await coordinator.async_get_device_schedule(mac)
+            if isinstance(coordinator.data, dict):
+                cache = coordinator.data.setdefault("devices_wan_access", {})
+                key = next((k for k in cache if k.upper() == mac), mac)
+                cache[key] = info
+        except Exception:  # noqa: BLE001 — le refresh complet prendra le relais
+            pass
         await coordinator.async_request_refresh()
         connection.send_result(msg["id"], {"status": "ok", "blocked": blocked})
     except Exception as err:
