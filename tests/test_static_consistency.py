@@ -249,3 +249,10 @@ def test_entity_translations_complete():
         entity = json.loads((COMPONENT / "translations" / f"{lang}.json").read_text(encoding="utf-8"))["entity"]
         missing = sorted(f"{p}.{k}" for p, k in keys if k not in entity.get(p, {}))
         assert missing == [], f"{lang}: traductions manquantes {missing}"
+
+
+def test_looks_like_decoder():
+    looks = _load_helper("_looks_like_decoder")
+    assert looks({"DeviceType": "Set-top Box", "Tags": "lan edev"})
+    assert looks({"DeviceType": "", "Tags": "lan edev mac physical eth ipv4 dhcp stb orange"})
+    assert not looks({"DeviceType": "Computer", "Tags": "lan edev mac stbx"})
