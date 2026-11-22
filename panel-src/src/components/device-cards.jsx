@@ -3,7 +3,7 @@ import { Ban, Globe, Pin, Zap, Pencil, Check } from "lucide-react";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { useConfirm } from "../lib/confirm-context.jsx";
 import { renderDeviceIcon, deviceTypeLabel } from "../lib/device-types.jsx";
-import { interfaceLabel, isWifiInterface, signalQuality } from "../lib/labels.js";
+import { interfaceLabel, ipSourceLabel, isWifiInterface, signalQuality } from "../lib/labels.js";
 import { formatRate, formatSignal } from "../lib/format.js";
 import { Pill } from "./status.jsx";
 import { DeviceDetailDrawer } from "./device-table.jsx";
@@ -109,7 +109,14 @@ function DeviceCard({ device: d, isNew, onOpen, onRename, onChanged }) {
             className="block w-full truncate text-left text-sm font-medium lb-text hover:underline">
             {d.name}
           </button>
-          <span className="block truncate text-xs lb-mono lb-text-muted">{d.ip || d.mac}</span>
+          <span className="block truncate text-xs lb-text-muted"
+            title={d.ip_in_dhcp_pool
+              ? "IP réglée sur l'appareil mais comprise dans la plage DHCP : la box peut la donner à un autre appareil. Réservez-la ou sortez-la de la plage."
+              : undefined}>
+            <span className="lb-mono">{d.ip || d.mac}</span>
+            {d.ip && ipSourceLabel(d.ip_source) && <> · {ipSourceLabel(d.ip_source)}</>}
+            {d.ip_in_dhcp_pool && <span style={{ color: "var(--lb-warn-text)" }}> · dans la plage DHCP</span>}
+          </span>
         </div>
         {pill}
       </div>

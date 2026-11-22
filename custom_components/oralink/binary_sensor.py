@@ -19,6 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from . import LiveboxConfigEntry
 from .const import DDNS_ICON, MISSED_ICON, RA_ICON
 from .coordinator import LiveboxDataUpdateCoordinator
+from .dhcp_utils import device_ip_source, manual_ip_in_pool, pool_summary
 from .entity import LiveboxEntity
 from .helpers import find_item
 
@@ -134,6 +135,44 @@ BINARYSENSOR_TYPES: Final[tuple[LiveboxBinarySensorEntityDescription, ...]] = (
 )
 
 
+def _manual_ips_in_pool(data: dict[str, Any]) -> list[str]:
+    """Appareils en IP fixée à la main dans la plage distribuée par la box."""
+    pool = pool_summary(data.get("dhcp_pool"))
+    reserved = {
+        (lease.get("Mac Address") or "").upper()
+        for lease in data.get("dhcp_static_leases", []) or []
+    }
+    return sorted(
+        f"{device.get('Name') or mac} ({device.get('IPAddress')})"
+        for mac, device in (data.get("all_devices") or {}).items()
+        if manual_ip_in_pool(
+            device_ip_source(mac, device, reserved), device.get("IPAddress"), pool
+        )
+    )
+
+
+# Serveur DHCP de la box : ON = la box distribue les adresses du LAN. OFF n'est
+# pas forcément une panne (un autre routeur peut s'en charger), d'où RUNNING
+# plutôt que PROBLEM ; activé par défaut pour pouvoir alerter dessus.
+DHCP_BINARYSENSOR: Final = LiveboxBinarySensorEntityDescription(
+    key="dhcp_server",
+    icon="mdi:ip-network-outline",
+    device_class=BinarySensorDeviceClass.RUNNING,
+    entity_category=EntityCategory.DIAGNOSTIC,
+    value_fn=lambda x: pool_summary(x.get("dhcp_pool"))["enabled"],
+    attrs={
+        "range_start": lambda x: pool_summary(x.get("dhcp_pool"))["start"],
+        "range_end": lambda x: pool_summary(x.get("dhcp_pool"))["end"],
+        "lease_time": lambda x: pool_summary(x.get("dhcp_pool"))["lease_time"],
+        "status": lambda x: pool_summary(x.get("dhcp_pool"))["status"],
+        "leases": lambda x: len(x.get("dhcp_leases", []) or []),
+        "reservations": lambda x: len(x.get("dhcp_static_leases", []) or []),
+        "manual_ips_in_pool": _manual_ips_in_pool,
+    },
+    translation_key="dhcp_server",
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: LiveboxConfigEntry,
@@ -145,6 +184,10 @@ async def async_setup_entry(
         LiveboxBinarySensor(coordinator, description)
         for description in BINARYSENSOR_TYPES
     ]
+
+    # 5656 : modèle sans serveur DHCP exposé (cf. async_get_dhcp_pool).
+    if coordinator.model != 5656:
+        entities.append(LiveboxBinarySensor(coordinator, DHCP_BINARYSENSOR))
 
     linktype = coordinator.data.get("wan_status", {}).get("LinkType", "").lower()
     if linktype in ["gpon", "sfp"]:

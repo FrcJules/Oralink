@@ -48,6 +48,9 @@
       "ddns": {
         "name": "Dynamic DNS ({service})"
       },
+      "dhcp_server": {
+        "name": "DHCP server"
+      },
       "ipv6_active": {
         "name": "IPv6 Active"
       },

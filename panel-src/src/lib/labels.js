@@ -123,3 +123,14 @@ export function isEmptyValue(value) {
   if (typeof value === "string") return SENTINELS.has(value.trim());
   return false;
 }
+
+/** Origine de l'IP d'un appareil (livebox/devices → ip_source). */
+const IP_SOURCE_LABELS = {
+  reserved: "réservée",
+  dhcp: "DHCP",
+  manual: "IP manuelle",
+};
+
+export function ipSourceLabel(source) {
+  return IP_SOURCE_LABELS[source] ?? null;
+}
