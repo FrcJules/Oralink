@@ -286,3 +286,42 @@ def test_latest_wan_rate_needs_two_points(coordinator):
     asyncio.run(c._record_traffic_history({}, {"BytesReceived": 7_500_000, "BytesSent": 750_000}))
     rate = c._latest_wan_rate()
     assert rate["rx"] == pytest.approx(1.0, rel=0.05) and rate["tx"] == pytest.approx(0.1, rel=0.05)
+
+
+def _dhcp_api(pool_status):
+    """api.dhcp simulée : compte les lectures du pool, un bail sur `default`."""
+    calls = {"pool": 0}
+
+    async def get_pool(*_args):
+        calls["pool"] += 1
+        return {"status": pool_status}
+
+    async def get_leases(_conf, domain):
+        return {"status": {domain: {"x": {"IPAddress": "192.168.1.20", "MACAddress": "AA:BB:CC:DD:EE:01",
+                                          "FriendlyName": "pc", "LeaseTime": 86400, "Active": True}}}}
+
+    api = MagicMock()
+    api.dhcp.async_get_dhcp_pool = get_pool
+    api.dhcp.async_get_dhcp_leases = get_leases
+    return api, calls
+
+
+def test_dhcp_leases_reuse_pool(coordinator):
+    pool = {"default": {"Enable": True}, "guest": {"Enable": False}}
+    coordinator.api, calls = _dhcp_api(pool)
+    coordinator.model = 6
+    fetched = asyncio.run(coordinator.async_get_dhcp_pool())
+    leases = asyncio.run(coordinator.async_get_dhcp_leases(pool=fetched))
+    guest = asyncio.run(coordinator.async_get_dhcp_leases("guest", pool=fetched))
+    assert calls["pool"] == 1  # pool lu une seule fois par rafraîchissement
+    assert [l["IP Address"] for l in leases] == ["192.168.1.20"]
+    assert guest == []  # pool invité désactivé
+
+
+def test_dhcp_pool_disabled_or_failed(coordinator):
+    coordinator.model = 6
+    coordinator.api, _ = _dhcp_api({"default": {"Enable": False}})
+    assert asyncio.run(coordinator.async_get_dhcp_leases()) == []
+    coordinator.api, _ = _dhcp_api(None)  # réponse inattendue
+    assert asyncio.run(coordinator.async_get_dhcp_pool()) == {}
+    assert asyncio.run(coordinator.async_get_dhcp_leases()) == []

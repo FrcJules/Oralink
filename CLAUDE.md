@@ -300,6 +300,18 @@ expose `wan_blocked`/`static_ip`, `livebox/network` `guest_wifi`/
 `firewall_level`/`wan.error_code`. Le dépôt est public : captures de PR avec
 des données fictives (harnais `hass` simulé), jamais celles de la vraie box.
 
+**État DHCP (1.4.0, 2026-11-22)** : `coordinator.data["dhcp_pool"]`
+(`DHCPv4.Server:getDHCPServerPool`, lu une fois et réutilisé pour les baux
+`default`/`guest`), logique pure dans `dhcp_utils.py` (`pool_summary`,
+`device_ip_source` à partir de `IPAddressSource` DHCP/Static/self,
+`manual_ip_in_pool`). Exposé par `binary_sensor.<box>_serveur_dhcp`,
+`livebox/dhcp` → `pool` (bandeau de l'onglet Réseau) et `livebox/devices` →
+`ip_source`/`ip_in_dhcp_pool`. ⚠️ Le panel n'a **pas** d'écran pour activer le
+DHCP ou changer la plage : `livebox/dhcp/params/set` (NMC `DHCPEnable`/
+`DHCPStartIPAddress`…) existe côté backend mais n'a jamais été vérifié sur la
+box — à tester avec `scripts/live-tests/` avant de le rebrancher (une erreur
+coupe le LAN).
+
 **Nettoyage panel-src (2026-07-12)** : 6 fichiers d'onglets
 (`dhcp-tab.jsx`, `nat-tab.jsx`, `network-tab.jsx`, `system-tab.jsx`,
 `diagnostics-tab.jsx`, `advanced-tab.jsx`) n'étaient plus importés dans

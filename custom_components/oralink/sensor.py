@@ -303,7 +303,6 @@ SENSOR_TYPES: Final[list[LiveboxSensorEntityDescription]] = [
         state_class=SensorStateClass.TOTAL,
         translation_key="dhcp_leases",
         attrs={"Leases": lambda x: x.get("dhcp_leases")},
-        entity_registry_enabled_default=False,
     ),
     LiveboxSensorEntityDescription(
         key="guest_dhcp_leases",
@@ -350,7 +349,6 @@ SENSOR_TYPES: Final[list[LiveboxSensorEntityDescription]] = [
         state_class=SensorStateClass.TOTAL,
         translation_key="dhcp_static_leases",
         attrs={"leases": lambda x: x.get("dhcp_static_leases")},
-        entity_registry_enabled_default=False,
     ),
     LiveboxSensorEntityDescription(
         key="wired_devices",

@@ -9,7 +9,7 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Card, StateBox } from "../components/card.jsx";
 import { useConfirm } from "../lib/confirm-context.jsx";
-import { formatRate } from "../lib/format.js";
+import { formatDays, formatRate } from "../lib/format.js";
 import { interfaceLabel } from "../lib/labels.js";
 
 function fmtBytes(b) {
@@ -213,6 +213,38 @@ function SimpleLeaseTable({ leases, empty }) {
   );
 }
 
+/**
+ * État du serveur DHCP de la box (livebox/dhcp → pool). Désactivé n'est pas
+ * une panne : un autre routeur peut distribuer les adresses — d'où « warn »
+ * et non « bad ». Inconnu (lecture du pool en échec) : rien n'est affiché.
+ */
+function DhcpStatusBanner({ pool, leases, reservations }) {
+  if (!pool || pool.enabled == null) return null;
+  const on = pool.enabled;
+  const detail = on
+    ? [
+        pool.start && pool.end ? `Plage ${pool.start} → ${pool.end}` : null,
+        pool.lease_time ? `baux de ${formatDays(pool.lease_time / 86400)}` : null,
+        `${leases} ${leases > 1 ? "baux dynamiques" : "bail dynamique"}`,
+        `${reservations} réservation${reservations > 1 ? "s" : ""}`,
+      ].filter(Boolean).join(" · ")
+    : "Les appareils n'obtiennent une adresse que si un autre routeur du réseau s'en charge. "
+      + "Pour la réactiver : interface web de la Livebox → Réseau → DHCP.";
+  return (
+    <div className={`lb-banner lb-banner-${on ? "ok" : "warn"} mb-4`} role="status">
+      <span className="lb-banner-icon" style={{ background: `var(--lb-${on ? "ok" : "warn"})` }}>
+        <span className="text-sm font-bold">IP</span>
+      </span>
+      <div className="min-w-0">
+        <p className="font-semibold leading-snug lb-text">
+          {on ? "Serveur DHCP de la box actif" : "Serveur DHCP de la box désactivé"}
+        </p>
+        <p className="text-sm lb-text-muted">{detail}</p>
+      </div>
+    </div>
+  );
+}
+
 function DhcpSection() {
   const { data, loading, error, refresh } = useWsData("livebox/dhcp", {}, 30_000);
   const [prefill, setPrefill] = useState(null);
@@ -226,6 +258,13 @@ function DhcpSection() {
 
   return (
     <>
+      {data && (
+        <DhcpStatusBanner
+          pool={data.pool}
+          leases={data.dynamic?.length ?? 0}
+          reservations={data.static?.length ?? 0}
+        />
+      )}
       <Card title="DHCP statiques" id="dhcp-static-card">
         <StateBox loading={loading} error={error} />
         {data && (

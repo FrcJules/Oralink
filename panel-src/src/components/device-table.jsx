@@ -3,7 +3,7 @@ import { ChevronUp, ChevronDown, ChevronsUpDown, Zap, X, Lock, Unlock, Pencil, C
 import { useWsAction } from "../lib/use-ws-action.js";
 import { Row } from "./card.jsx";
 import { DEVICE_ICON_OPTIONS, deviceTypeLabel } from "../lib/device-types.jsx";
-import { interfaceLabel, firewallLabel } from "../lib/labels.js";
+import { interfaceLabel, firewallLabel, ipSourceLabel } from "../lib/labels.js";
 import { formatRate, formatSignal, parseDate } from "../lib/format.js";
 
 const fmtDateTime = (v) => parseDate(v)?.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
@@ -193,6 +193,9 @@ export function DeviceDetailDrawer({ device, onClose, onRenamed, startRenaming =
             <p className="mb-2 text-xs font-semibold uppercase lb-text-muted">Résumé</p>
             <Row label="État" value={device.active ? "En ligne" : "Hors ligne"} />
             <Row label="IP" value={device.ip} />
+            <Row label="Origine de l'IP" value={device.ip
+              ? [ipSourceLabel(device.ip_source), device.ip_in_dhcp_pool ? "dans la plage DHCP ⚠" : null].filter(Boolean).join(" · ")
+              : null} />
             <Row label="Connexion" value={interfaceLabel(device.interface, device.band)} />
             <Row label="Signal" value={formatSignal(device.signal)} />
             <div className="flex justify-between border-b lb-border py-1 text-sm last:border-0">

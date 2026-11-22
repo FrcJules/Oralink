@@ -176,7 +176,8 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             fiber_stats = await self.async_get_fiber_stats()
             await self._record_traffic_history(device_traffic, wan_counters, fiber_stats)
 
-            dhcp_leases = await self.async_get_dhcp_leases()
+            dhcp_pool = await self.async_get_dhcp_pool()
+            dhcp_leases = await self.async_get_dhcp_leases(pool=dhcp_pool)
             (
                 memory_status,
                 ntp_synced,
@@ -236,8 +237,11 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "upnp": await self.async_get_port_forwarding(),
                 "ptf": await self.async_get_protocol_forwarding(),
                 "upnp_igd": await self.async_get_upnp_igd(),
+                "dhcp_pool": dhcp_pool,
                 "dhcp_leases": dhcp_leases,
-                "guest_dhcp_leases": await self.async_get_dhcp_leases("guest"),
+                "guest_dhcp_leases": await self.async_get_dhcp_leases(
+                    "guest", pool=dhcp_pool
+                ),
                 "dhcp_static_leases": await self.async_get_dhcp_static_leases(),
                 "stats": stats,
                 "wan_counters": wan_counters,
@@ -937,17 +941,24 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             )
         return rules
 
-    async def async_get_dhcp_leases(
-        self, domain: str = "default"
-    ) -> list[dict[str, Any]]:
-        """Get dhcp leases."""
+    async def async_get_dhcp_pool(self) -> dict[str, Any]:
+        """Pools du serveur DHCPv4 (`default`, `guest`) : Enable, plage, durée des baux."""
         if self.model == 5656:
-            return []
-
+            return {}
         data = (await self._make_request(self.api.dhcp.async_get_dhcp_pool)).get(
             "status", {}
         )
-        if data.get(domain, {}).get("Enable", False) is False:
+        return data if isinstance(data, dict) else {}
+
+    async def async_get_dhcp_leases(
+        self, domain: str = "default", pool: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Get dhcp leases (`pool` : résultat déjà lu de async_get_dhcp_pool)."""
+        if self.model == 5656:
+            return []
+
+        data = pool if pool is not None else await self.async_get_dhcp_pool()
+        if (data.get(domain) or {}).get("Enable", False) is False:
             return []
 
         data = (

@@ -20,6 +20,7 @@ from homeassistant.util import dt as dt_util
 
 from . import tv_decoder_api
 from .const import DOMAIN
+from .dhcp_utils import device_ip_source, manual_ip_in_pool, pool_summary
 from .history_utils import downsample, merge_rate_series, parse_float
 
 _LOGGER = logging.getLogger(__name__)
@@ -205,10 +206,12 @@ def ws_get_devices(hass, connection, msg):
         (lease.get("Mac Address") or "").upper()
         for lease in coordinator.data.get("dhcp_static_leases", []) or []
     }
+    pool = pool_summary(coordinator.data.get("dhcp_pool"))
 
     result = []
     for mac, d in devices.items():
         t = traffic.get(mac, {})
+        ip_source = device_ip_source(mac, d, static_macs)
         result.append({
             "mac": mac,
             "name": d.get("Name", mac),
@@ -229,6 +232,9 @@ def ws_get_devices(hass, connection, msg):
             "rate_tx": t.get("rate_tx"),
             "wan_blocked": _wan_blocked(wan_access.get(mac)),
             "static_ip": mac.upper() in static_macs,
+            # reserved / dhcp / manual / "" — cf. dhcp_utils.device_ip_source.
+            "ip_source": ip_source,
+            "ip_in_dhcp_pool": manual_ip_in_pool(ip_source, d.get("IPAddress"), pool),
         })
 
     result.sort(key=lambda d: (not d["active"], d["name"].lower()))
@@ -322,6 +328,7 @@ def ws_get_dhcp(hass, connection, msg):
     dynamic.sort(key=lambda d: d["ip"])
 
     connection.send_result(msg["id"], {
+        "pool": pool_summary(data.get("dhcp_pool")),
         "dynamic": dynamic,
         "guest": [_normalize_lease(l) for l in data.get("guest_dhcp_leases", [])],
         "static": [_normalize_static(l) for l in static_leases_raw],
@@ -3202,11 +3209,16 @@ async def ws_repeaters_scan_ips(hass, connection, msg):
     repeaters = coordinator.data.get("topology_repeaters", {})
     dhcp_leases = coordinator.data.get("dhcp_leases", [])
 
-    # Build MAC→IP map from DHCP leases
+    # MAC→IP : baux DHCP (clé « IP Address », cf. async_get_dhcp_leases), puis
+    # repli sur les appareils vus par la box — un répéteur en IP fixe, ou un
+    # réseau dont le DHCP est assuré par un autre routeur, n'a pas de bail.
     mac_to_ip: dict[str, str] = {}
+    for mac, device in (coordinator.data.get("all_devices") or {}).items():
+        if device.get("IPAddress"):
+            mac_to_ip[mac.upper()] = device["IPAddress"]
     for lease in dhcp_leases:
         mac = (lease.get("Mac Address") or "").upper()
-        ip = lease.get("IPAddress") or ""
+        ip = lease.get("IP Address") or ""
         if mac and ip:
             mac_to_ip[mac] = ip
 

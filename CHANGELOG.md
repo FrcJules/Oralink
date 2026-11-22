@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.4.0 — 2026-11-22
+
+### Nouveautés
+- **Capteur « Serveur DHCP »** (`binary_sensor.<box>_serveur_dhcp`, activé
+  par défaut) : allumé quand la Livebox distribue les adresses du réseau.
+  Attributs : plage d'adresses, durée des baux, nombre de baux et de
+  réservations, et les appareils en IP manuelle situés dans la plage DHCP
+  (risque de doublon). Utile pour être alerté si le DHCP est coupé, ou pour
+  suivre une bascule quand un autre routeur cesse de le faire.
+- **Onglet Réseau → DHCP** : bandeau d'état du serveur DHCP (actif avec sa
+  plage et la durée des baux, ou désactivé).
+- **Origine de l'IP de chaque appareil** (cartes et fiche détaillée de
+  l'onglet Appareils) : DHCP, réservée ou IP manuelle, avec un avertissement
+  quand une IP manuelle est dans la plage distribuée par la box.
+
+### Améliorations
+- Les capteurs « Baux DHCP » et « Baux DHCP statiques » sont désormais
+  activés par défaut (nouvelles installations ; sur une installation
+  existante, les activer depuis la page de l'appareil Livebox).
+- Le pool DHCP n'est plus lu qu'une fois par rafraîchissement (au lieu
+  d'une fois par réseau).
+
+### Corrections
+- **Répéteurs → détection automatique des IP** : elle ne trouvait jamais rien
+  (mauvaise clé lue dans les baux DHCP). Elle utilise aussi maintenant les
+  appareils vus par la box, ce qui marche pour un répéteur en IP fixe ou
+  quand le DHCP est assuré par un autre routeur.
+
 ## 1.3.0 — 2026-11-17
 
 ### Nouveautés
