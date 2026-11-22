@@ -300,7 +300,7 @@ expose `wan_blocked`/`static_ip`, `livebox/network` `guest_wifi`/
 `firewall_level`/`wan.error_code`. Le dépôt est public : captures de PR avec
 des données fictives (harnais `hass` simulé), jamais celles de la vraie box.
 
-**État DHCP (1.4.0, 2026-11-23)** : `coordinator.data["dhcp_pool"]`
+**État DHCP (1.4.0, 2026-11-22)** : `coordinator.data["dhcp_pool"]`
 (`DHCPv4.Server:getDHCPServerPool`, lu une fois et réutilisé pour les baux
 `default`/`guest`), logique pure dans `dhcp_utils.py` (`pool_summary`,
 `device_ip_source` à partir de `IPAddressSource` DHCP/Static/self,

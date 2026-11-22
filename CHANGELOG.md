@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.0 — 2026-11-23
+## 1.4.0 — 2026-11-22
 
 ### Nouveautés
 - **Capteur « Serveur DHCP »** (`binary_sensor.<box>_serveur_dhcp`, activé
