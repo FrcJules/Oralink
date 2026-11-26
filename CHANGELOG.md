@@ -3,6 +3,25 @@
 ## Non publié
 
 ### Nouveautés
+- **Qualité de la connexion** (nouvel onglet) :
+  - **test de débit** chaque jour à l'heure choisie (et à la demande), avec
+    historique et alerte ntfy si le débit chute (seuil fixe, ou moitié du
+    débit habituel confirmée par un 2ᵉ test). La Livebox ne permet pas de
+    lancer un test : Oralink mesure depuis Home Assistant vers les serveurs
+    de test Cloudflare, donc dans la limite de la connexion de la machine HA.
+    Les capteurs « Speedtest » utilisent ces mesures quand la box n'a pas de
+    résultat (cas de la Livebox 6) ;
+  - **santé de la fibre** : un relevé par heure de la puissance optique
+    (30 jours), niveau Correct / À surveiller / Critique (seuils GPON et
+    baisse de 3 dB par rapport à l'habitude), alerte ntfy à chaque
+    changement de niveau.
+- **Réparations Home Assistant** : une alerte apparaît quand des
+  redirections de ports, redirections de protocole ou réservations DHCP
+  visent un appareil inconnu ou absent depuis plus de 30 jours.
+- **Frise de présence** sur 7 jours dans la fiche de chaque appareil.
+- **Conseils Wi-Fi** (onglet Wifi) : appareils au signal faible (avec une
+  suggestion selon qu'il y a déjà un répéteur ou non) et connexions
+  instables (6 déconnexions ou plus en 24 h).
 - **Notifications ntfy directes** (Administration → Notifications) : serveur
   (ntfy.sh ou auto-hébergé), topic, jeton facultatif, bouton de test. Alertes
   au choix : nouvel appareil sur le réseau, ouverture d'un port sur Internet

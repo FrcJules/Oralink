@@ -390,3 +390,21 @@ def test_guest_on_uses_status_when_timer_active():
     assert on({"Enable": False, "Status": "Enabled", "ActivationTimeout": 1795684270})
     assert not on({"Enable": False, "Status": "Disabled"})
     assert on({"Enable": True})
+
+
+def test_presence_sessions_open_close_and_restart():
+    ms = importlib.import_module("custom_components.oralink.monitor_store")
+    store = ms.MonitorStore(MagicMock(), "e")
+    t0 = datetime(2026, 11, 26, 8, 0, tzinfo=timezone.utc)
+    store.update_sessions({"AA"}, t0, False, {})
+    assert store.sessions["AA"] == [[t0.isoformat(), None]]
+    t1 = t0 + timedelta(hours=1)
+    store.update_sessions(set(), t1, False, {})
+    assert store.sessions["AA"][-1][1] == t1.isoformat()
+    # Redémarrage : session ouverte d'un appareil absent → close à sa dernière présence.
+    store.update_sessions({"BB"}, t1, False, {})
+    t2 = t0 + timedelta(hours=5)
+    seen = (t0 + timedelta(hours=2)).isoformat()
+    store.update_sessions(set(), t2, True, {"BB": seen})
+    assert store.sessions["BB"][-1][1] == seen
+    assert store.disconnects_since(t0) == {"AA": 1, "BB": 1}

@@ -50,6 +50,9 @@ OFFLINE_DEVICES_SCAN_INTERVAL = timedelta(minutes=15)
 # 10 min (la valeur en mémoire est à jour à chaque cycle, et HA écrit le
 # reste à l'arrêt).
 LAST_SEEN_SAVE_INTERVAL = timedelta(minutes=10)
+# Une règle est « oubliée » si son appareil est inconnu ou absent depuis 30 j
+# (même seuil que le bandeau du panel, cf. lib/presence.js).
+STALE_RULE_DAYS = 30
 TOPOLOGY_BUILD_TIMEOUT = 30
 # Événement publié sur le bus HA à chaque connexion/déconnexion/nouvel appareil
 EVENT_DEVICE = f"{DOMAIN}_device_event"
@@ -105,6 +108,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self._offline_devices: dict[str, Any] = {}
         self._offline_devices_at: datetime | None = None
         self._last_seen_saved_at: datetime | None = None
+        self._stale_checked_at: datetime | None = None
 
         # Rolling in-memory history for the "Graphiques" tab (~12h at 1 update/min)
         self._traffic_history: deque[dict[str, Any]] = deque(maxlen=720)
@@ -127,6 +131,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self.settings_store = SettingsStore(hass, config_entry.entry_id)
         self.alerts: Any = None
         self.groups: Any = None
+        self.monitor: Any = None
         self._last_upnp: list[dict[str, Any]] | None = None
         self._guest_status: dict[str, Any] = {}
         self._guest_until_at: datetime | None = None
@@ -153,8 +158,12 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         from .alerts import OralinkAlerts  # import tardif : dépend de HA (webhook, network)
         from .groups import GroupManager
 
+        from .monitor import Monitor
+
         self.alerts = OralinkAlerts(self.hass, self)
         self.groups = GroupManager(self.hass, self)
+        self.monitor = Monitor(self.hass, self)
+        await self.monitor.async_load()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data."""
@@ -197,6 +206,8 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             await self.async_detect_new_dvices(devices)
             self._record_device_events(previous_devices, devices)
             self._record_last_seen(self._all_devices)
+            if self.monitor is not None:
+                self.monitor.record_presence(self._all_devices)
             await self.async_refresh_offline_devices()
 
             device_traffic = await self.async_get_device_traffic()
@@ -206,6 +217,9 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
             # serve as fallback byte-counter source when HomeLan.getWANCounters is
             # empty (common on Livebox 6 SG60 firmware).
             fiber_stats = await self.async_get_fiber_stats()
+            fiber_status = await self.async_get_fiber_status()
+            if self.monitor is not None:
+                self.monitor.record_fiber(fiber_status)
             await self._record_traffic_history(device_traffic, wan_counters, fiber_stats)
 
             dhcp_pool = await self.async_get_dhcp_pool()
@@ -225,7 +239,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 self.async_get_iptv_status(),
                 self.async_get_connection_extra(),
             )
-            return {
+            result = {
                 "cmissed": cmissed,
                 "callers": callers,
                 "devices": devices,
@@ -262,7 +276,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "devices_wan_access": await self.async_get_devices_schedules(devices),
                 "ddns": await self.async_get_ddns(),
                 "wifi_stats": await self.async_get_wifi_stats(),
-                "fiber_status": await self.async_get_fiber_status(),
+                "fiber_status": fiber_status,
                 "fiber_stats": fiber_stats,
                 "remote_access": await self.async_is_remote_access(),
                 "topology_via_device": topology_via_device,
@@ -286,6 +300,8 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "contacts": await self.async_get_contacts(),
                 "speedtest": await self.async_get_speedtest(),
             }
+            self._update_stale_rules(result)
+            return result
         except AiosysbusException as error:
             _LOGGER.error("Error while fetch data information: %s", error)
             raise UpdateFailed(error) from error
@@ -533,7 +549,31 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "end": d.get("end"),
             }
 
-        return {"downstream": _direction("Downstream"), "upstream": _direction("Upstream")}
+        box = {"downstream": _direction("Downstream"), "upstream": _direction("Upstream")}
+        if box["downstream"] or self.monitor is None or not self.monitor.latest_speedtest:
+            return box
+        # La box n'a pas de résultat (cas de la Livebox 6) : capteurs alimentés
+        # par le dernier test d'Oralink (speedtest.py).
+        return self._own_speedtest_format(self.monitor.latest_speedtest)
+
+    @staticmethod
+    def _own_speedtest_format(entry: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "downstream": {"rate_mbit": entry.get("down"), "latency_ms": entry.get("latency"),
+                           "end": entry.get("time")},
+            "upstream": {"rate_mbit": entry.get("up"), "latency_ms": entry.get("latency"),
+                         "end": entry.get("time")},
+            "source": "oralink",
+        }
+
+    def apply_own_speedtest(self, entry: dict[str, Any]) -> None:
+        """Met à jour tout de suite les capteurs Speedtest après un test."""
+        if isinstance(self.data, dict) and not (
+            self.data.get("speedtest", {}).get("downstream") and
+            self.data["speedtest"].get("source") != "oralink"
+        ):
+            self.data["speedtest"] = self._own_speedtest_format(entry)
+            self.async_update_listeners()
 
     async def async_get_dsl_status(self) -> dict[str, Any]:
         """Get dsl status."""
@@ -894,6 +934,52 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                         {"name": device.name_by_user or device.name or identifier,
                          "first_seen": now},
                     )
+
+    def presence_index(self, data: dict[str, Any] | None = None) -> PresenceIndex:
+        data = data if data is not None else (self.data or {})
+        return PresenceIndex(
+            data.get("all_devices") or data.get("devices", {}),
+            data.get("offline_devices"),
+            self.event_log_store.seen,
+            datetime.now(tz=UTC),
+        )
+
+    def _update_stale_rules(self, data: dict[str, Any]) -> None:
+        """Réparations HA : règles qui visent un appareil disparu (> 30 j).
+
+        Toutes les 15 min. Les règles UPnP sont exclues (elles expirent seules).
+        """
+        if self.monitor is None:
+            return
+        now = datetime.now(tz=UTC)
+        if self._stale_checked_at and now - self._stale_checked_at < OFFLINE_DEVICES_SCAN_INTERVAL:
+            return
+        self._stale_checked_at = now
+        index = self.presence_index(data)
+
+        def stale(p: dict[str, Any] | None) -> bool:
+            if not p:
+                return False
+            return p["state"] == "unknown" or (
+                p["state"] == "offline" and (p.get("offline_days") or 0) >= STALE_RULE_DAYS
+            )
+
+        found: list[str] = []
+        for rule in data.get("upnp") or []:
+            if str(rule.get("id", "")).startswith("webui_"):
+                p = index.by_ip(rule.get("destination_ip"))
+                if stale(p):
+                    found.append(f"Redirection de port « {rule.get('name')} » → {rule.get('destination_ip')}")
+        for rule in data.get("ptf") or []:
+            p = index.by_ip(rule.get("destination_ip"))
+            if stale(p):
+                found.append(f"Redirection de protocole « {rule.get('name')} » → {rule.get('destination_ip')}")
+        for lease in data.get("dhcp_static_leases") or []:
+            p = index.by_mac(lease.get("Mac Address"))
+            if stale(p):
+                label = lease.get("Name") or p.get("name") or lease.get("Mac Address")
+                found.append(f"Réservation DHCP {lease.get('IP Address')} ({label})")
+        self.monitor.update_stale_issue(found)
 
     def _record_last_seen(self, devices: dict[str, Any]) -> None:
         """Mémorise, pour chaque appareil actif, la date et ses adresses.

@@ -224,5 +224,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "stale_rules": {
+      "title": "Rules target devices that are gone",
+      "description": "{count} rule(s) on the Livebox point to a device that is unknown or has been offline for more than 30 days. They are probably safe to delete (Oralink panel → DHCP & NAT):\n\n{rules}"
+    }
   }
 }

@@ -278,7 +278,8 @@ remplacé par le blueprint `blueprints/automation/oralink/wifi_night_schedule.ya
 (`event.py`, relaie `oralink_device_event` — `event_type` new/connected/
 disconnected, attributs mac/name/ip — utilisable comme déclencheur dans
 l'éditeur d'automatisations) et capteurs `Speedtest Download/Upload/Latency`
-(dernier test mémorisé par la box, `coordinator.data["speedtest"]`). L'onglet
+(dernier test mémorisé par la box, sinon dernier test d'Oralink —
+cf. « Surveillance »). L'onglet
 Appareils a une recherche, un filtre Tous/Actifs/Wi-Fi/Filaires et un export
 CSV (séparateur `;`, BOM UTF-8 pour Excel).
 
@@ -352,6 +353,34 @@ la position « pas de notification dans l'intégration » (demande explicite) :
   pause d'1 min sur un appareil hors ligne (coupé puis rétabli, notification
   de fin reçue), Wi-Fi invité 1 h (activé, heure juste, coupé). Non testé en
   réel : le clic sur « Couper Internet » (pas de nouvel appareil sous la main).
+
+**Surveillance (2026-11-26)** — `monitor.py` (`Monitor`, créé au setup du
+coordinator), historiques dans `monitor_store.py`
+(`.storage/oralink_monitor_<entry>`), règles pures dans `monitor_utils.py` :
+- ⚠ **La Livebox 6 ne sait pas lancer de speedtest** : `SpeedTest` n'a que
+  `get`/`getWANResults` (vide, `status: "None"`), `SpeedTest.ServerConfig` →
+  « Permission denied ». `speedtest.py` mesure donc depuis HA vers
+  `speed.cloudflare.com` (`/__down?bytes=`, `/__up`, 4 flux). Cloudflare
+  **refuse (403) les blocs de 100 Mo** et limite les rafales : garder 25 Mo
+  par flux et un test par jour. Mesuré ~1,6 Gbit/s ↓ depuis la VM HA (le 1er
+  test juste après un redémarrage de HA est faussement bas). Test planifié
+  à `speedtest_hour`:17 (`async_track_time_change`) ; chute = `speed_drop`
+  (seuil fixe ou < 50 % de la médiane des 7 derniers, re-test après 2 min).
+  `coordinator.async_get_speedtest` bascule sur ces mesures si la box n'a pas
+  de résultat (`source: "oralink"`).
+- Fibre : un relevé/heure (`record_fiber`, rx/tx en dBm = valeur box / 1000),
+  `fiber_level` (≤ -27 warn, ≤ -28 bad, -3 dB vs médiane si ≥ 24 relevés),
+  alerte ntfy au changement de niveau (`fiber_level` persisté).
+- Présence : sessions `[début, fin]` par MAC (14 j) sur `all_devices` ; au
+  1er cycle après redémarrage, une session ouverte d'un appareil absent est
+  close à son `seen.last_seen`. `livebox/device/presence` → frise dans la
+  fiche appareil (`components/presence-timeline.jsx`).
+- Réparations : issue `stale_rules` (traductions `issues` dans
+  `strings.json`/`translations`), recalculée toutes les 15 min dans
+  `_update_stale_rules` (NAT manuel, PTF, baux statiques — pas l'UPnP).
+- Conseils Wi-Fi : `wifi_advice` (≤ -75 dBm, ≥ 6 déconnexions/24 h).
+- Réglages : `settings_store.monitor` ; nouvelles alertes ntfy `speed_drop`
+  et `fiber`. Onglet panel `tabs/monitor-tab.jsx` (« Qualité connexion »).
 
 **Nettoyage panel-src (2026-07-12)** : 6 fichiers d'onglets
 (`dhcp-tab.jsx`, `nat-tab.jsx`, `network-tab.jsx`, `system-tab.jsx`,

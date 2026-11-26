@@ -5,6 +5,7 @@ import { Row } from "./card.jsx";
 import { DEVICE_ICON_OPTIONS, deviceTypeLabel } from "../lib/device-types.jsx";
 import { interfaceLabel, firewallLabel, ipSourceLabel } from "../lib/labels.js";
 import { formatRate, formatSignal, parseDate } from "../lib/format.js";
+import { PresenceTimeline } from "./presence-timeline.jsx";
 
 const fmtDateTime = (v) => parseDate(v)?.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
 
@@ -230,6 +231,11 @@ export function DeviceDetailDrawer({ device, onClose, onRenamed, startRenaming =
             <Row label="Constructeur" value={device.manufacturer} />
             <Row label="Première détection" value={fmtDateTime(device.first_seen)} />
             <Row label="Dernière connexion" value={fmtDateTime(device.last_connection)} />
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase lb-text-muted">Présence (7 jours)</p>
+            <PresenceTimeline mac={device.mac} />
           </div>
 
           {/* WAN access control */}

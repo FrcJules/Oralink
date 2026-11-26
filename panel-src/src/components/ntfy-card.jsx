@@ -14,6 +14,8 @@ const ALERTS = [
   { key: "upnp_all", label: "… à chaque ouverture de port UPnP", hint: "Plus bavard : les consoles et décodeurs en ouvrent souvent.", sub: true },
   { key: "pause_end", label: "Fin d'une pause Internet de groupe" },
   { key: "guest_off", label: "Wi-Fi invité éteint par son minuteur" },
+  { key: "speed_drop", label: "Débit Internet en baisse (test quotidien)" },
+  { key: "fiber", label: "Signal de la fibre dégradé (et retour à la normale)" },
 ];
 
 export function NtfyCard() {

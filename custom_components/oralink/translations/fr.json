@@ -224,5 +224,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "stale_rules": {
+      "title": "Des règles visent des appareils disparus",
+      "description": "{count} règle(s) de la Livebox visent un appareil inconnu ou hors ligne depuis plus de 30 jours. Elles sont probablement à supprimer (panel Oralink → DHCP & NAT) :\n\n{rules}"
+    }
   }
 }
