@@ -13,12 +13,15 @@ import { useConfirm } from "../lib/confirm-context.jsx";
 import { Card, StateBox, Row } from "../components/card.jsx";
 import { formatRate } from "../lib/format.js";
 import { firewallLabel, stateLabel } from "../lib/labels.js";
+import { PresenceBadge, StaleNotice } from "../components/presence.jsx";
+import { NtfyCard } from "../components/ntfy-card.jsx";
 
 // ── Section selector ──────────────────────────────────────────────────────────
 
 const SECTIONS = [
   { id: "system", label: "Système" },
   { id: "advanced", label: "Avancé" },
+  { id: "notifications", label: "Notifications" },
   { id: "diagnostics", label: "Diagnostics" },
 ];
 
@@ -444,12 +447,21 @@ function AdvancedSection() {
                 </button>
               </span>
             </div>
+            <div className="mt-2"><StaleNotice items={upnp.rules} noun={["règle UPnP", "règles UPnP"]} /></div>
             {upnp.rules.length === 0
               ? <p className="mt-2 text-sm lb-text-muted">Aucune règle UPnP.</p>
               : <ul className="mt-2 space-y-1 text-sm">
                   {upnp.rules.map((r) => (
-                    <li key={r.id} className="flex items-center justify-between border-b lb-border py-1 last:border-0">
-                      <span>{r.name ?? r.id}</span>
+                    <li key={r.id} className="flex items-center justify-between gap-2 border-b lb-border py-1 last:border-0">
+                      <span className="min-w-0">
+                        <span>{r.name ?? r.id}</span>
+                        {r.external_port && (
+                          <span className="ml-2 text-xs lb-text-muted">
+                            port {r.external_port} → {r.destination_ip || "?"}
+                          </span>
+                        )}
+                        <PresenceBadge presence={r.presence} className="block mt-0.5" />
+                      </span>
                       <button onClick={() => handleUpnpDelete(r.id)} className="text-xs text-red-600 hover:underline">
                         Supprimer
                       </button>
@@ -533,6 +545,7 @@ function DmzCard({ fallback }) {
       )}
       {data?.supported && (
         <>
+          <StaleNotice items={entries} noun={["entrée DMZ", "entrées DMZ"]} />
           {entries.length === 0
             ? <p className="text-sm lb-text-muted">DMZ désactivée.</p>
             : <ul className="space-y-1 text-sm">
@@ -544,6 +557,7 @@ function DmzCard({ fallback }) {
                         {entry.id}{entry.source_prefix ? ` · depuis ${entry.source_prefix}` : ""}
                         {entry.enabled ? "" : " · inactive"}
                       </span>
+                      <PresenceBadge presence={entry.presence} className="block mt-0.5" />
                     </span>
                     <button onClick={() => handleDelete(entry)} className="text-xs text-red-600 hover:underline">
                       Supprimer
@@ -934,6 +948,7 @@ export function AdministrationTab() {
       {section === "system" && <SystemSection />}
       {section === "advanced" && <AdvancedSection />}
       {section === "diagnostics" && <DiagnosticsSection />}
+      {section === "notifications" && <div className="max-w-2xl"><NtfyCard /></div>}
     </div>
   );
 }

@@ -3,11 +3,13 @@ import { useWsData } from "../lib/use-ws-data.js";
 import { Card, StateBox } from "../components/card.jsx";
 
 const PAGE_SIZE = 50;
+const PROTOCOLS = { "6": "TCP", "17": "UDP", "6,17": "TCP/UDP" };
 
 const EVENT_STYLES = {
   connected: { dot: "bg-emerald-500", text: "text-emerald-600", label: "↑ connecté" },
   disconnected: { dot: "bg-[var(--disabled-text-color)]", text: "lb-text-muted", label: "↓ déconnecté" },
   new: { dot: "bg-amber-500", text: "text-amber-600 font-semibold", label: "★ nouvel appareil" },
+  port_opened: { dot: "bg-orange-500", text: "text-orange-600", label: "⇄ port ouvert (UPnP)" },
 };
 
 export function EventsTab() {
@@ -38,10 +40,12 @@ export function EventsTab() {
       <p className="mb-3 flex-shrink-0 text-xs lb-text-muted">
         Connexions, déconnexions et appareils jamais vus, détectés entre deux
         rafraîchissements (~1 min) et conservés après un redémarrage de HA.
-        Pour être notifié, créez une automatisation HA déclenchée par l'événement{" "}
+        Les ouvertures de ports par UPnP y figurent aussi. Pour être notifié sur votre téléphone :
+        Administration → Notifications (ntfy). Pour une automatisation HA : événement{" "}
         <code className="font-mono">oralink_device_event</code> (champ{" "}
         <code className="font-mono">event</code> : <code className="font-mono">new</code>,{" "}
-        <code className="font-mono">connected</code> ou <code className="font-mono">disconnected</code>).
+        <code className="font-mono">connected</code> ou <code className="font-mono">disconnected</code>)
+        ou <code className="font-mono">oralink_port_forward_event</code> (<code className="font-mono">opened</code>/<code className="font-mono">closed</code>).
       </p>
 
       {/* Filters */}
@@ -58,6 +62,7 @@ export function EventsTab() {
             { value: "connected", label: "Connexions" },
             { value: "disconnected", label: "Déconnexions" },
             { value: "new", label: "Nouveaux" },
+            { value: "port_opened", label: "Ports UPnP" },
           ].map(({ value, label }) => (
             <button
               key={value}
@@ -108,6 +113,12 @@ export function EventsTab() {
                   <td className="py-1.5 pr-3 font-medium lb-text">
                     {e.name || "—"}
                     <span className={`ml-1.5 text-xs ${style.text}`}>{style.label}</span>
+                    {e.event === "port_opened" && (
+                      <span className="block text-xs lb-text-muted">
+                        port {e.port}{e.protocol ? ` (${PROTOCOLS[e.protocol] ?? e.protocol})` : ""}
+                        {e.description ? ` · ${e.description}` : ""}
+                      </span>
+                    )}
                   </td>
                   <td className="py-1.5 pr-3 lb-text-muted">{e.ip || "—"}</td>
                   <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{e.mac}</td>

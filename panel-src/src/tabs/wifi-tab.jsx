@@ -6,7 +6,7 @@ import { useWsAction } from "../lib/use-ws-action.js";
 import { useDeviceNames } from "../lib/use-device-names.js";
 import { Card, StateBox } from "../components/card.jsx";
 import { useConfirm } from "../lib/confirm-context.jsx";
-import { formatRate, formatSignal } from "../lib/format.js";
+import { formatRate, formatSignal, parseDate } from "../lib/format.js";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -232,10 +232,18 @@ function VapRow({ vap, onKick, onSet }) {
 
 // ── Global Wifi toggle ────────────────────────────────────────────────────────
 
-function GlobalWifiCard({ wifiEnabled, guestEnabled, guestTimerHours, onRefresh }) {
+const GUEST_DURATIONS = [
+  { hours: 1, label: "1 h" },
+  { hours: 4, label: "4 h" },
+  { hours: 24, label: "24 h" },
+  { hours: 0, label: "Sans limite" },
+];
+const untilFmt = new Intl.DateTimeFormat("fr-FR", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+
+function GlobalWifiCard({ wifiEnabled, guestEnabled, guestUntil, onRefresh }) {
   const runAction = useWsAction();
   const [toggling, setToggling] = useState(null);
-  const [timer, setTimer] = useState(String(guestTimerHours ?? 0));
+  const [hours, setHours] = useState(4);
 
   const handleWifiToggle = async () => {
     setToggling("wifi");
@@ -248,17 +256,22 @@ function GlobalWifiCard({ wifiEnabled, guestEnabled, guestTimerHours, onRefresh 
     } finally { setToggling(null); }
   };
 
-  const handleGuestToggle = async () => {
+  // Durée gérée par le minuteur de la box (NMC.WlanTimer) : elle s'éteint
+  // toute seule, même si Home Assistant est arrêté.
+  const setGuest = async (enabled) => {
     setToggling("guest");
     try {
-      const timerHours = parseInt(timer, 10) || 0;
       await runAction(
-        { type: "livebox/wifi/guest/toggle", enabled: !guestEnabled, timer_hours: timerHours },
-        { success: !guestEnabled ? "Wifi invité activé." : "Wifi invité désactivé." },
+        { type: "livebox/wifi/guest/toggle", enabled, timer_hours: enabled ? hours : 0 },
+        { success: enabled
+            ? (hours ? `Wifi invité activé pour ${hours} h.` : "Wifi invité activé.")
+            : "Wifi invité désactivé." },
       );
       onRefresh();
     } finally { setToggling(null); }
   };
+
+  const until = parseDate(guestUntil);
 
   return (
     <Card title={<span className="flex items-center gap-2"><Wifi className="size-4" /> Wifi global</span>}>
@@ -281,22 +294,28 @@ function GlobalWifiCard({ wifiEnabled, guestEnabled, guestTimerHours, onRefresh 
           </button>
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-sm font-medium lb-text">Wifi invité</p>
-            {guestEnabled && (
-              <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-xs lb-text-muted">Durée (h, 0=∞)</p>
-                <input
-                  type="number" min={0} max={24} value={timer}
-                  onChange={(e) => setTimer(e.target.value)}
-                  className="lb-input w-14 text-xs py-0.5"
-                />
+            {guestEnabled ? (
+              <p className="text-xs lb-text-muted">
+                {until ? `Actif — s'éteint ${untilFmt.format(until)}` : "Actif, sans limite de durée"}
+              </p>
+            ) : (
+              <div className="mt-1 flex flex-wrap items-center gap-1" role="group" aria-label="Durée">
+                {GUEST_DURATIONS.map((d) => (
+                  <button key={d.hours} onClick={() => setHours(d.hours)} aria-pressed={hours === d.hours}
+                    className={`rounded-md border lb-border px-2 py-0.5 text-xs ${
+                      hours === d.hours ? "lb-sidebar-active font-medium" : "lb-text-muted"
+                    }`}>
+                    {d.label}
+                  </button>
+                ))}
               </div>
             )}
           </div>
           <button
-            onClick={handleGuestToggle}
+            onClick={() => setGuest(!guestEnabled)}
             disabled={toggling !== null || guestEnabled == null}
             className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
               guestEnabled
@@ -307,6 +326,11 @@ function GlobalWifiCard({ wifiEnabled, guestEnabled, guestTimerHours, onRefresh 
             {toggling === "guest" ? "…" : guestEnabled ? "Désactiver" : "Activer"}
           </button>
         </div>
+        {guestEnabled && (
+          <p className="text-xs lb-text-muted">
+            QR code à montrer à vos invités : « Configuration des réseaux » ci-dessous → Wi-Fi invité.
+          </p>
+        )}
       </div>
     </Card>
   );
@@ -509,7 +533,7 @@ export function WifiTab() {
         <GlobalWifiCard
           wifiEnabled={data.wifi_enabled}
           guestEnabled={data.guest_enabled}
-          guestTimerHours={data.guest_timer_hours}
+          guestUntil={data.guest_until}
           onRefresh={refresh}
         />
       )}

@@ -11,6 +11,7 @@ import { Card, StateBox } from "../components/card.jsx";
 import { useConfirm } from "../lib/confirm-context.jsx";
 import { formatDays, formatRate } from "../lib/format.js";
 import { interfaceLabel } from "../lib/labels.js";
+import { PresenceBadge, StaleNotice } from "../components/presence.jsx";
 
 function fmtBytes(b) {
   if (b == null || b === 0) return "0 o";
@@ -116,6 +117,8 @@ function StaticLeaseTable({ leases, empty, onRefresh }) {
 
   if (!leases?.length) return <p className="text-sm lb-text-muted">{empty}</p>;
   return (
+    <>
+    <StaleNotice items={leases} noun={["réservation", "réservations"]} />
     <div className="overflow-x-auto overflow-y-auto max-h-[45vh]">
       <table className="w-full text-left text-sm">
         <thead className="sticky top-0 text-xs uppercase lb-text-muted bg-[var(--card-background-color)]">
@@ -129,7 +132,10 @@ function StaticLeaseTable({ leases, empty, onRefresh }) {
         <tbody>
           {leases.map((l) => (
             <tr key={l.mac} className="border-t lb-border">
-              <td className="py-1.5 pr-3 font-medium">{l.name || "—"}</td>
+              <td className="py-1.5 pr-3">
+                <div className="font-medium">{l.name || "—"}</div>
+                {l.presence?.state !== "online" && <PresenceBadge presence={l.presence} className="block mt-0.5" />}
+              </td>
               <td className="py-1.5 pr-3 lb-text-muted">{l.ip || "—"}</td>
               <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{l.mac || "—"}</td>
               <td className="py-1.5 text-right">
@@ -146,6 +152,7 @@ function StaticLeaseTable({ leases, empty, onRefresh }) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
@@ -467,6 +474,7 @@ function NatSection() {
         <>
           <AddRuleForm onSaved={refresh} />
           {deleteError && <p className="mb-2 text-xs text-red-600">Erreur : {String(deleteError.message ?? deleteError)}</p>}
+          <StaleNotice items={data} />
           {data.length === 0 ? (
             <p className="text-sm lb-text-muted">Aucune règle NAT configurée.</p>
           ) : (
@@ -475,7 +483,7 @@ function NatSection() {
                 <thead className="sticky top-0 text-xs uppercase lb-text-muted bg-[var(--card-background-color)]">
                   <tr>
                     <th className="py-1.5 pr-3">Nom</th>
-                    <th className="py-1.5 pr-3">IP destination</th>
+                    <th className="py-1.5 pr-3">Destination</th>
                     <th className="py-1.5 pr-3">Port ext.</th>
                     <th className="py-1.5 pr-3">Port int.</th>
                     <th className="py-1.5 pr-3">Protocole</th>
@@ -486,7 +494,10 @@ function NatSection() {
                   {data.map((rule) => (
                     <tr key={rule.id} className="border-t lb-border">
                       <td className="py-1.5 pr-3 font-medium">{rule.name ?? rule.id ?? "—"}</td>
-                      <td className="py-1.5 pr-3 lb-text-muted">{rule.destination_ip || "—"}</td>
+                      <td className="py-1.5 pr-3 lb-text-muted">
+                        <div>{rule.destination_ip || "—"}</div>
+                        <PresenceBadge presence={rule.presence} className="block mt-0.5" />
+                      </td>
                       <td className="py-1.5 pr-3 lb-text-muted">{rule.external_port || "—"}</td>
                       <td className="py-1.5 pr-3 lb-text-muted">{rule.internal_port || "—"}</td>
                       <td className="py-1.5 pr-3 lb-text-muted">{PROTOCOL_LABELS[rule.protocol] ?? formatProtocols(rule.protocol)}</td>
@@ -608,6 +619,7 @@ function PtfSection() {
         <>
           <AddPtfRuleForm onSaved={refresh} />
           {deleteError && <p className="mb-2 text-xs text-red-600">Erreur : {String(deleteError.message ?? deleteError)}</p>}
+          <StaleNotice items={data} />
           {data.length === 0 ? (
             <p className="text-sm lb-text-muted">Aucune règle PTF configurée.</p>
           ) : (
@@ -627,7 +639,10 @@ function PtfSection() {
                     <tr key={rule.id} className="border-t lb-border">
                       <td className="py-1.5 pr-3 font-medium">{rule.name ?? rule.id ?? "—"}</td>
                       <td className="py-1.5 pr-3 lb-text-muted">{formatProtocols(rule.protocol)}</td>
-                      <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted">{rule.destination_ip || "—"}</td>
+                      <td className="py-1.5 pr-3 text-xs lb-text-muted">
+                        <div className="font-mono">{rule.destination_ip || "—"}</div>
+                        <PresenceBadge presence={rule.presence} className="block mt-0.5" />
+                      </td>
                       <td className="py-1.5 pr-3 lb-text-muted">{rule.enable ? "Active" : "Inactive"}</td>
                       <td className="py-1.5 text-right">
                         <button
@@ -747,6 +762,7 @@ function PinholeSection() {
       {data && (
         <>
           <AddPinholeForm onSaved={refresh} />
+          <StaleNotice items={data.rules} />
           {data.rules.length === 0 ? (
             <p className="text-sm lb-text-muted">Aucun port IPv6 ouvert.</p>
           ) : (
@@ -768,7 +784,10 @@ function PinholeSection() {
                       <td className="py-1.5 pr-3 font-medium">{rule.name}</td>
                       <td className="py-1.5 pr-3 lb-text-muted">{PROTOCOL_LABELS[rule.protocol] ?? rule.protocol}</td>
                       <td className="py-1.5 pr-3 lb-text-muted">{rule.port}</td>
-                      <td className="py-1.5 pr-3 font-mono text-xs lb-text-muted break-all">{rule.destination_ip}</td>
+                      <td className="py-1.5 pr-3 text-xs lb-text-muted">
+                        <div className="font-mono break-all">{rule.destination_ip}</div>
+                        <PresenceBadge presence={rule.presence} className="block mt-0.5" />
+                      </td>
                       <td className="py-1.5 pr-3 lb-text-muted">{rule.origin === "upnp" ? "UPnP" : "Manuelle"}</td>
                       <td className="py-1.5 text-right">
                         <button onClick={() => handleDelete(rule)}

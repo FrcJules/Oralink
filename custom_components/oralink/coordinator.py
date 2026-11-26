@@ -32,6 +32,9 @@ from .const import (
 )
 from .event_log_store import MAX_EVENTS, EventLogStore
 from .helpers import find_item
+from .presence_utils import PresenceIndex, seen_record
+from .settings_store import SettingsStore
+from .upnp_utils import diff_upnp
 from .repeater_store import RepeaterStore
 from .topology_store import TopologyStore
 from .traffic_history_store import TrafficHistoryStore
@@ -40,9 +43,18 @@ from .tv_decoder_store import TvDecoderStore
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(minutes=1)
 TOPOLOGY_SCAN_INTERVAL = timedelta(minutes=15)
+# Appareils inactifs mémorisés par la box (cible des règles NAT/DMZ…) : ça
+# bouge peu, inutile de les relire à chaque cycle.
+OFFLINE_DEVICES_SCAN_INTERVAL = timedelta(minutes=15)
+# Écriture sur disque du « vu pour la dernière fois » : au plus toutes les
+# 10 min (la valeur en mémoire est à jour à chaque cycle, et HA écrit le
+# reste à l'arrêt).
+LAST_SEEN_SAVE_INTERVAL = timedelta(minutes=10)
 TOPOLOGY_BUILD_TIMEOUT = 30
 # Événement publié sur le bus HA à chaque connexion/déconnexion/nouvel appareil
 EVENT_DEVICE = f"{DOMAIN}_device_event"
+# Ouverture/fermeture d'un port par UPnP (event = opened / closed).
+EVENT_PORT_FORWARD = f"{DOMAIN}_port_forward_event"
 # Écart max entre deux points d'historique pour calculer un débit WAN différentiel
 MAX_RATE_GAP = timedelta(minutes=5)
 # Requêtes Livebox concurrentes max pour les appels « un par appareil »
@@ -90,6 +102,9 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self._topology_last_update: str | None = None
         self._all_devices: dict[str, Any] = {}
         self._active_counts: dict[str, int] = {"wifi": 0, "eth": 0}
+        self._offline_devices: dict[str, Any] = {}
+        self._offline_devices_at: datetime | None = None
+        self._last_seen_saved_at: datetime | None = None
 
         # Rolling in-memory history for the "Graphiques" tab (~12h at 1 update/min)
         self._traffic_history: deque[dict[str, Any]] = deque(maxlen=720)
@@ -106,6 +121,15 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         self.topology_store = TopologyStore(hass, config_entry.entry_id)
         self.tv_decoder_store = TvDecoderStore(hass, config_entry.entry_id)
         self.traffic_history_store = TrafficHistoryStore(hass, config_entry.entry_id)
+        # Réglages ntfy, groupes, pauses (settings_store) ; `alerts` et
+        # `groups` sont créés au setup (None tant que HA n'est pas prêt, et
+        # dans les tests unitaires).
+        self.settings_store = SettingsStore(hass, config_entry.entry_id)
+        self.alerts: Any = None
+        self.groups: Any = None
+        self._last_upnp: list[dict[str, Any]] | None = None
+        self._guest_status: dict[str, Any] = {}
+        self._guest_until_at: datetime | None = None
 
     async def _async_setup(self) -> None:
         """Coordinator setup."""
@@ -125,6 +149,12 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         await self.event_log_store.async_load()
         if not self.event_log_store.known:
             self._seed_known_devices()
+        await self.settings_store.async_load()
+        from .alerts import OralinkAlerts  # import tardif : dépend de HA (webhook, network)
+        from .groups import GroupManager
+
+        self.alerts = OralinkAlerts(self.hass, self)
+        self.groups = GroupManager(self.hass, self)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data."""
@@ -166,6 +196,8 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
 
             await self.async_detect_new_dvices(devices)
             self._record_device_events(previous_devices, devices)
+            self._record_last_seen(self._all_devices)
+            await self.async_refresh_offline_devices()
 
             device_traffic = await self.async_get_device_traffic()
             stats = await self.async_get_results()
@@ -198,12 +230,14 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "callers": callers,
                 "devices": devices,
                 "all_devices": self._all_devices,
+                "offline_devices": self._offline_devices,
                 "dsl_status": await self.async_get_dsl_status(),
                 "infos": infos,
                 "nmc": await self.async_get_nmc(),
                 "wan_status": await self.async_get_wan_status(),
                 "wifi": await self.async_is_wifi(),
                 "guest_wifi": await self.async_is_guest_wifi(),
+                "guest_wifi_until": self._guest_until(),
                 "count_wired_devices": self._active_counts["eth"],
                 "count_wireless_devices": self._active_counts["wifi"],
                 "wan_rate": self._latest_wan_rate(),
@@ -234,7 +268,7 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                 "topology_via_device": topology_via_device,
                 "topology_repeaters": topology_repeaters,
                 "lan": await self.async_get_lan(devices),
-                "upnp": await self.async_get_port_forwarding(),
+                "upnp": await self._async_port_forwarding_with_events(),
                 "ptf": await self.async_get_protocol_forwarding(),
                 "upnp_igd": await self.async_get_upnp_igd(),
                 "dhcp_pool": dhcp_pool,
@@ -622,11 +656,164 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
         return wifi.get("Enable") is True
 
     async def async_is_guest_wifi(self) -> bool:
-        """Get Guest Wifi status."""
+        """Get Guest Wifi status.
+
+        ⚠ Livebox 6 : avec un minuteur actif, `Enable` repasse à False alors
+        que le réseau est allumé — seul `Status` (« Enabled ») est fiable.
+        """
         guest_wifi = (await self._make_request(self.api.nmc.async_get_guest_wifi)).get(
             "status", {}
         )
-        return guest_wifi.get("Enable") is True
+        if not isinstance(guest_wifi, dict) or not guest_wifi:
+            return self._guest_on(self._guest_status)  # lecture en échec
+        previous_until = self._guest_until_at
+        was_on = self._guest_on(self._guest_status)
+        self._guest_status = guest_wifi
+        is_on = self._guest_on(guest_wifi)
+        self._guest_until_at = await self._async_guest_timer_end() if is_on else None
+        if (
+            was_on
+            and not is_on
+            and previous_until
+            and datetime.now(tz=UTC) >= previous_until - timedelta(minutes=3)
+            and self.alerts is not None
+        ):
+            # Éteint par le minuteur de la box (fin de la durée d'activation).
+            self.hass.async_create_task(self.alerts.async_notify(
+                "guest_off", "Wi-Fi invité éteint",
+                "Le Wi-Fi invité s'est éteint à la fin de sa durée d'activation.",
+                tags=["wifi"],
+            ))
+        return is_on
+
+    @staticmethod
+    def _guest_on(status: dict[str, Any]) -> bool:
+        if status.get("Status"):
+            return status.get("Status") == "Enabled"
+        return status.get("Enable") is True
+
+    async def _async_guest_timer_end(self) -> datetime | None:
+        """Fin du minuteur du Wi-Fi invité, d'après le temps restant (s).
+
+        On n'utilise pas `NMC.Guest.ValidTime` : la box y écrit l'heure locale
+        suffixée « Z » (décalée d'une heure ou deux).
+        """
+        try:
+            raw = await self.api.devices._auth.post(
+                "NMC.WlanTimer", "getActivationTimer", {"InterfaceName": "guest"}
+            )
+            remaining = int((raw or {}).get("status") or 0)
+        except (AiosysbusException, TypeError, ValueError):
+            return None
+        return datetime.now(tz=UTC) + timedelta(seconds=remaining) if remaining > 0 else None
+
+    def _guest_until(self) -> str | None:
+        """Heure d'extinction programmée du Wi-Fi invité (ISO), sinon None."""
+        return self._guest_until_at.isoformat() if self._guest_until_at else None
+
+    # ── Accès Internet par appareil (planificateur ToD) ──────────────────────
+
+    async def async_is_wan_blocked(self, mac: str) -> bool:
+        """Accès Internet coupé (override « Disable » du planning ToD) ?"""
+        raw = await self.api.devices._auth.post(
+            "Scheduler", "getSchedule", {"type": "ToD", "ID": mac.upper()}
+        )
+        info = (raw or {}).get("data", {}).get("scheduleInfo") if isinstance(raw, dict) else None
+        return isinstance(info, dict) and info.get("override") == "Disable"
+
+    async def async_set_wan_blocked(self, mac: str, blocked: bool, refresh: bool = True) -> None:
+        """Coupe ou rétablit l'accès Internet d'un appareil (lève en cas d'échec)."""
+        mac = mac.upper()
+        auth = self.api.devices._auth
+        raw = await auth.post("Scheduler", "getSchedule", {"type": "ToD", "ID": mac})
+        has_schedule = isinstance(raw, dict) and bool(raw.get("status"))
+        if has_schedule:
+            await auth.post(
+                "Scheduler", "overrideSchedule",
+                {"type": "ToD", "ID": mac, "override": "Disable" if blocked else "Enable"},
+            )
+        elif blocked:
+            await auth.post("Scheduler", "addSchedule", {"type": "ToD", "info": {
+                "ID": mac, "base": "Weekly", "def": "Enable", "schedule": [],
+                "enable": True, "override": "Disable",
+            }})
+        # Relit tout de suite le planning de cet appareil : sans ça, l'état
+        # affiché restait l'ancien jusqu'au prochain cycle complet.
+        try:
+            info = await self.async_get_device_schedule(mac)
+            if isinstance(self.data, dict):
+                cache = self.data.setdefault("devices_wan_access", {})
+                key = next((k for k in cache if k.upper() == mac), mac)
+                cache[key] = info
+        except Exception:  # noqa: BLE001 — le refresh complet prendra le relais
+            pass
+        if refresh:
+            await self.async_request_refresh()
+
+    def device_info_by_mac(self, mac: str) -> dict[str, Any]:
+        mac = mac.upper()
+        for source in (self._all_devices, self._offline_devices):
+            for key, device in source.items():
+                if key.upper() == mac:
+                    return device
+        seen = self.event_log_store.seen.get(mac) or {}
+        return {"Name": seen.get("name", "")}
+
+    # ── Redirections UPnP : événements à l'ouverture / fermeture ─────────────
+
+    async def _async_port_forwarding_with_events(self) -> list[dict[str, Any]]:
+        rules = await self.async_get_port_forwarding()
+        previous = self._last_upnp
+        if not rules and previous:
+            # Liste vide alors qu'il y avait des règles : très probablement un
+            # échec de lecture, pas une fermeture générale.
+            return rules
+        self._last_upnp = rules
+        if previous is None:
+            return rules  # premier cycle : référence, rien à signaler
+        opened, closed = diff_upnp(previous, rules)
+        if not opened and not closed:
+            return rules
+        index = PresenceIndex(
+            self._all_devices, self._offline_devices, self.event_log_store.seen,
+            datetime.now(tz=UTC),
+        )
+        now = str(datetime.now(tz=DEFAULT_TIME_ZONE))
+        journal: list[dict[str, Any]] = []
+        for kind, items in (("opened", opened), ("closed", closed)):
+            for rule in items:
+                presence = index.by_ip(rule.get("destination_ip")) or {}
+                payload = {
+                    "entry_id": self.config_entry.entry_id,
+                    "event": kind,
+                    "rule_id": rule.get("id"),
+                    "description": rule.get("name"),
+                    "protocol": rule.get("protocol"),
+                    "external_port": rule.get("external_port"),
+                    "internal_port": rule.get("internal_port"),
+                    "destination_ip": rule.get("destination_ip"),
+                    "mac": presence.get("mac", ""),
+                    "name": presence.get("name", ""),
+                }
+                self.hass.bus.async_fire(EVENT_PORT_FORWARD, payload)
+                if kind == "opened":
+                    journal.append({
+                        "time": now, "event": "port_opened",
+                        "mac": payload["mac"], "ip": rule.get("destination_ip", ""),
+                        "name": payload["name"] or rule.get("destination_ip", ""),
+                        "port": rule.get("external_port"), "protocol": rule.get("protocol"),
+                        "description": rule.get("name"),
+                    })
+                    if self.alerts is not None:
+                        self.hass.async_create_task(
+                            self.alerts.async_upnp_opened(rule, presence or None)
+                        )
+        if journal:
+            store = self.event_log_store
+            store.events[:0] = reversed(journal)
+            del store.events[MAX_EVENTS:]
+            store.async_schedule_save()
+        return rules
 
     async def async_get_ddns(self) -> list[Any]:
         """Get DDNS status."""
@@ -708,6 +895,62 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                          "first_seen": now},
                     )
 
+    def _record_last_seen(self, devices: dict[str, Any]) -> None:
+        """Mémorise, pour chaque appareil actif, la date et ses adresses.
+
+        Base de la colonne « appareil visé » des règles (cf. presence_utils) :
+        la box efface l'IP d'un appareil dès qu'il se déconnecte.
+        """
+        store = self.event_log_store
+        now_dt = datetime.now(tz=UTC)
+        now = now_dt.isoformat()
+        changed = False
+        for mac, device in devices.items():
+            if not device.get("Active"):
+                continue
+            previous = store.seen.get(mac)
+            record = seen_record(device, previous, now)
+            if previous is None or {**previous, "last_seen": now} != record:
+                changed = True
+            store.seen[mac] = record
+        due = (
+            self._last_seen_saved_at is None
+            or now_dt - self._last_seen_saved_at >= LAST_SEEN_SAVE_INTERVAL
+        )
+        if changed or due:
+            self._last_seen_saved_at = now_dt
+            store.async_schedule_save()
+
+    async def async_refresh_offline_devices(self) -> None:
+        """Relit (toutes les 15 min) les appareils inactifs connus de la box."""
+        now = datetime.now(tz=UTC)
+        if (
+            self._offline_devices_at is not None
+            and now - self._offline_devices_at < OFFLINE_DEVICES_SCAN_INTERVAL
+        ):
+            return
+        self._offline_devices_at = now
+        parameters = {
+            "expression": {
+                "wifi": '.Active==false && wifi && (edev || hnid) and .PhysAddress!=""',
+                "eth": '.Active==false && eth && (edev || hnid) and .PhysAddress!=""',
+            }
+        }
+        result = (
+            await self._make_request(self.api.devices.async_get_devices, parameters)
+        ).get("status", {})
+        if not isinstance(result, dict) or not result:
+            # Échec de la requête (_make_request renvoie {}) : on garde la
+            # liste précédente et on réessaiera au prochain cycle.
+            self._offline_devices_at = None
+            return
+        self._offline_devices = {
+            device["Key"]: device
+            for group in ("wifi", "eth")
+            for device in result.get(group, []) or []
+            if isinstance(device, dict) and device.get("Key")
+        }
+
     def _record_device_events(
         self, previous_devices: dict[str, Any], devices: dict[str, Any]
     ) -> None:
@@ -782,6 +1025,8 @@ class LiveboxDataUpdateCoordinator(DataUpdateCoordinator):
                     EVENT_DEVICE,
                     {"entry_id": self.config_entry.entry_id, **event},
                 )
+                if event["event"] == "new" and self.alerts is not None:
+                    self.hass.async_create_task(self.alerts.async_new_device(event))
         if changed or bootstrap:
             store.async_schedule_save()
 
