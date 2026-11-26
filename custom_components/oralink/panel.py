@@ -22,7 +22,7 @@ from . import tv_decoder_api
 from .const import DOMAIN
 from .dhcp_utils import device_ip_source, manual_ip_in_pool, pool_summary
 from .history_utils import downsample, merge_rate_series, parse_float
-from .presence_utils import PresenceIndex
+from .presence_utils import PresenceIndex  # noqa: F401 — annotations
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -180,6 +180,12 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_delete_group)
     websocket_api.async_register_command(hass, ws_pause_group)
     websocket_api.async_register_command(hass, ws_resume_group)
+    # Surveillance : test de débit, fibre, présence, conseils Wi-Fi
+    websocket_api.async_register_command(hass, ws_get_monitor)
+    websocket_api.async_register_command(hass, ws_set_monitor)
+    websocket_api.async_register_command(hass, ws_run_speedtest)
+    websocket_api.async_register_command(hass, ws_get_device_presence)
+    websocket_api.async_register_command(hass, ws_get_wifi_advice)
 
 
 def _get_coordinator(hass: HomeAssistant):
@@ -195,13 +201,7 @@ def _presence_index(coordinator) -> PresenceIndex:
     Pas de compteur d'utilisation par règle sur la Livebox : à défaut, on dit
     si l'appareil de destination d'une règle existe encore (presence_utils).
     """
-    data = coordinator.data or {}
-    return PresenceIndex(
-        data.get("all_devices") or data.get("devices", {}),
-        data.get("offline_devices"),
-        coordinator.event_log_store.seen,
-        dt_util.utcnow(),
-    )
+    return coordinator.presence_index()
 
 
 def _with_presence(rules: list[dict], index: PresenceIndex, key: str = "destination_ip") -> list[dict]:
@@ -3625,3 +3625,114 @@ async def ws_resume_group(hass, connection, msg):
         return
     errors = await coordinator.groups.async_resume(msg["group_id"])
     connection.send_result(msg["id"], {"status": "resumed", "errors": errors})
+
+
+# ── Surveillance (monitor.py) ────────────────────────────────────────────────
+
+def _monitor_or_error(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None or coordinator.monitor is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return None, None
+    return coordinator, coordinator.monitor
+
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/monitor"})
+def ws_get_monitor(hass, connection, msg):
+    """Test de débit (réglages, historique) et état de la fibre."""
+    coordinator, monitor = _monitor_or_error(hass, connection, msg)
+    if monitor is None:
+        return
+    from .monitor_utils import speed_baseline
+
+    history = monitor.store.speedtests
+    connection.send_result(msg["id"], {
+        "settings": dict(coordinator.settings_store.monitor),
+        "speedtest": {
+            "running": monitor.running,
+            "latest": monitor.latest_speedtest,
+            "history": history[-90:],
+            "baseline_down": speed_baseline(history),
+        },
+        "fiber": monitor.fiber_state(),
+    })
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/monitor/set",
+    vol.Required("speedtest_enabled"): bool,
+    vol.Required("speedtest_hour"): vol.All(int, vol.Range(min=0, max=23)),
+    vol.Required("min_down"): vol.All(vol.Coerce(float), vol.Range(min=0, max=100000)),
+})
+@callback
+def ws_set_monitor(hass, connection, msg):
+    coordinator, monitor = _monitor_or_error(hass, connection, msg)
+    if monitor is None:
+        return
+    coordinator.settings_store.monitor.update(
+        speedtest_enabled=msg["speedtest_enabled"],
+        speedtest_hour=msg["speedtest_hour"],
+        min_down=msg["min_down"],
+    )
+    coordinator.settings_store.async_schedule_save()
+    monitor.async_schedule()
+    connection.send_result(msg["id"], dict(coordinator.settings_store.monitor))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "livebox/speedtest/run"})
+@websocket_api.async_response
+async def ws_run_speedtest(hass, connection, msg):
+    """Lance un test de débit tout de suite (~20 s)."""
+    _, monitor = _monitor_or_error(hass, connection, msg)
+    if monitor is None:
+        return
+    try:
+        connection.send_result(msg["id"], await monitor.async_run_speedtest())
+    except Exception as err:  # noqa: BLE001 — SpeedtestError, réseau…
+        connection.send_error(msg["id"], "speedtest_failed", str(err))
+
+
+@callback
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/device/presence",
+    vol.Required("mac"): str,
+    vol.Optional("days", default=7): vol.All(int, vol.Range(min=1, max=14)),
+})
+def ws_get_device_presence(hass, connection, msg):
+    """Périodes de connexion d'un appareil sur les N derniers jours."""
+    _, monitor = _monitor_or_error(hass, connection, msg)
+    if monitor is None:
+        return
+    now = dt_util.utcnow()
+    since = (now - timedelta(days=msg["days"])).isoformat()
+    sessions = monitor.store.sessions.get(msg["mac"].upper()) or []
+    connection.send_result(msg["id"], {
+        "since": since,
+        "now": now.isoformat(),
+        # Le suivi ne couvre que la période depuis l'installation de la fonction.
+        "tracked_since": min((s[0] for v in monitor.store.sessions.values() for s in v), default=None),
+        "sessions": [
+            {"start": max(s[0], since), "end": s[1]}
+            for s in sessions if s[1] is None or s[1] >= since
+        ],
+    })
+
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/wifi/advice"})
+def ws_get_wifi_advice(hass, connection, msg):
+    """Conseils Wi-Fi : signal faible, connexions instables (24 h)."""
+    coordinator, monitor = _monitor_or_error(hass, connection, msg)
+    if monitor is None:
+        return
+    from .monitor_utils import wifi_advice
+
+    data = coordinator.data or {}
+    connection.send_result(msg["id"], wifi_advice(
+        data.get("all_devices") or {},
+        monitor.disconnects_24h(),
+        bool(data.get("topology_repeaters")),
+    ))

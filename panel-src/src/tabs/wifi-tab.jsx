@@ -6,6 +6,7 @@ import { useWsAction } from "../lib/use-ws-action.js";
 import { useDeviceNames } from "../lib/use-device-names.js";
 import { Card, StateBox } from "../components/card.jsx";
 import { useConfirm } from "../lib/confirm-context.jsx";
+import { WifiAdviceCard } from "../components/wifi-advice-card.jsx";
 import { formatRate, formatSignal, parseDate } from "../lib/format.js";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -537,6 +538,8 @@ export function WifiTab() {
           onRefresh={refresh}
         />
       )}
+
+      <WifiAdviceCard />
 
       <WifiConfigCard />
 

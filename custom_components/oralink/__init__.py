@@ -27,7 +27,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 _LOGGER = logging.getLogger(__name__)
 
 
-_PANEL_BUILD = "b99"  # bump whenever the JS bundle changes
+_PANEL_BUILD = "b101"  # bump whenever the JS bundle changes
 
 
 def _read_manifest_version() -> str:
@@ -66,6 +66,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiveboxConfigEntry) -> b
     coordinator.alerts.async_register_webhook()
     entry.async_on_unload(coordinator.alerts.async_unregister_webhook)
     entry.async_on_unload(coordinator.groups.async_shutdown)
+    # Test de débit quotidien (monitor.py).
+    coordinator.monitor.async_schedule()
+    entry.async_on_unload(coordinator.monitor.async_shutdown)
     entry.async_create_background_task(
         hass, coordinator.groups.async_restore(), "oralink_restore_pauses"
     )

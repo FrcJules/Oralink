@@ -11,7 +11,8 @@ Dans `.storage/oralink_settings_<entry_id>` (helper `Store` de HA) :
 - `groups` / `pauses` : groupes d'appareils et pauses Internet en cours
   (fin ISO, ou None = jusqu'à reprise manuelle) ;
 - `upnp_macs` : appareils ayant déjà ouvert un port UPnP (l'alerte n'est
-  envoyée qu'à la première ouverture d'un appareil, sauf réglage contraire).
+  envoyée qu'à la première ouverture d'un appareil, sauf réglage contraire) ;
+- `monitor` : test de débit planifié (activé, heure, seuil d'alerte).
 """
 
 from __future__ import annotations
@@ -35,6 +36,16 @@ NTFY_ALERTS = {
     "upnp_all": False,  # … à chaque ouverture, pas seulement la première
     "guest_off": False,  # le Wi-Fi invité minuté s'est éteint
     "pause_end": True,  # fin d'une pause Internet de groupe
+    "speed_drop": True,  # test de débit anormalement bas
+    "fiber": True,  # signal fibre dégradé / revenu à la normale
+}
+
+# Surveillance : test de débit quotidien (heure locale) ; min_down = seuil
+# d'alerte fixe en Mbit/s (0 = comparaison avec les tests habituels).
+DEFAULT_MONITOR: dict[str, Any] = {
+    "speedtest_enabled": True,
+    "speedtest_hour": 4,
+    "min_down": 0,
 }
 
 DEFAULT_NTFY: dict[str, Any] = {
@@ -60,6 +71,7 @@ class SettingsStore:
         self.groups: dict[str, dict[str, Any]] = {}
         self.pauses: dict[str, str | None] = {}
         self.upnp_macs: set[str] = set()
+        self.monitor: dict[str, Any] = dict(DEFAULT_MONITOR)
 
     async def async_load(self) -> None:
         data = await self._store.async_load()
@@ -72,6 +84,7 @@ class SettingsStore:
         self.groups = data.get("groups") or {}
         self.pauses = data.get("pauses") or {}
         self.upnp_macs = set(data.get("upnp_macs") or [])
+        self.monitor = {**DEFAULT_MONITOR, **(data.get("monitor") or {})}
         if not data.get("webhook_id"):
             self.async_schedule_save()
 
@@ -86,6 +99,7 @@ class SettingsStore:
             "groups": self.groups,
             "pauses": self.pauses,
             "upnp_macs": sorted(self.upnp_macs),
+            "monitor": self.monitor,
         }
 
     # ── Jetons des boutons d'action ──────────────────────────────────────────

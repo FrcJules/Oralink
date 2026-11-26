@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useRef } from "react";
 import {
   LayoutDashboard, Monitor, Network, GitFork,
   Wifi, Radio, BarChart2, Phone, Tv,
-  Settings, Activity, Menu, X, ChevronRight, Users,
+  Settings, Activity, Menu, X, ChevronRight, Users, Gauge,
 } from "lucide-react";
 import { useHass } from "./lib/hass-context.jsx";
 import { OverviewTab }      from "./tabs/overview-tab.jsx";
@@ -15,6 +15,7 @@ import { EventsTab }        from "./tabs/events-tab.jsx";
 import { TvDecoderTab }     from "./tabs/tv-decoder-tab.jsx";
 import { RepeatersTab }     from "./tabs/repeaters-tab.jsx";
 import { GroupsTab }        from "./tabs/groups-tab.jsx";
+import { MonitorTab }       from "./tabs/monitor-tab.jsx";
 
 const NAV_GROUPS = [
   {
@@ -29,6 +30,7 @@ const NAV_GROUPS = [
       { id: "groups",   label: "Pause Internet", icon: Users },
       { id: "reseau",   label: "DHCP & NAT", icon: Network  },
       { id: "topology", label: "Topologie",  icon: GitFork  },
+      { id: "monitor",  label: "Qualité connexion", icon: Gauge },
     ],
   },
   {
@@ -67,6 +69,7 @@ const TAB_RENDER = {
   overview:       () => <OverviewTab />,
   devices:        () => <DevicesTab />,
   groups:         () => <GroupsTab />,
+  monitor:        () => <MonitorTab />,
   reseau:         () => <ReseauTab />,
   wifi:           () => <WifiTab />,
   graphs:         () => <GraphsTab />,
