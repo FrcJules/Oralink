@@ -1,5 +1,46 @@
 # Changelog
 
+## Non publié
+
+### Nouveautés
+- **Notifications ntfy directes** (Administration → Notifications) : serveur
+  (ntfy.sh ou auto-hébergé), topic, jeton facultatif, bouton de test. Alertes
+  au choix : nouvel appareil sur le réseau, ouverture d'un port sur Internet
+  par UPnP (première fois par appareil, ou à chaque fois), fin d'une pause
+  Internet, Wi-Fi invité éteint par son minuteur. La notification « nouvel
+  appareil » a un bouton **Couper Internet** (puis **Rétablir**), qui passe
+  par un webhook Home Assistant avec un jeton à usage unique valable 24 h
+  (il faut une URL externe configurée dans HA).
+- **Pause Internet par groupe** (nouvel onglet « Pause Internet ») : groupes
+  d'appareils (enfants, consoles…) à couper d'un coup pendant 30 min, 1 h,
+  2 h, jusqu'au lendemain 7 h ou jusqu'à reprise. La reprise est automatique
+  (et rattrapée au démarrage de HA si l'échéance est passée) ; un appareil
+  déjà bloqué à la main avant la pause le reste.
+- **Ouvertures de ports UPnP** : nouvel événement HA
+  `oralink_port_forward_event` (`opened` / `closed`, port, protocole,
+  appareil) et entrée « port ouvert (UPnP) » dans le journal d'événements.
+- **Wi-Fi invité minuté** : la durée (1 h, 4 h, 24 h, sans limite) se choisit
+  avant d'activer, et l'heure d'extinction s'affiche. C'est le minuteur de la
+  box qui éteint le réseau, même si HA est arrêté.
+- **Repérer les règles qui visent un appareil disparu** : chaque redirection
+  de ports (NAT et UPnP), redirection de protocole, ouverture de port IPv6,
+  entrée DMZ et réservation DHCP indique l'état de l'appareil visé : en
+  ligne (avec son nom), hors ligne depuis N jours, « a changé d'adresse »
+  (bail DHCP différent ou IPv6 temporaire renouvelée) ou « aucun appareil
+  connu ». Un bandeau signale les règles dont l'appareil est inconnu ou
+  absent depuis plus de 30 jours, sans doute à supprimer. La Livebox ne
+  compte pas l'utilisation des ports (pas de compteur par règle, table des
+  connexions inaccessible même en admin) : c'est la présence de l'appareil
+  qui est vérifiée, pas le trafic sur le port.
+- Oralink mémorise désormais la dernière présence et les dernières adresses
+  de chaque appareil (la box efface l'IP d'un appareil déconnecté) et relit
+  toutes les 15 min les appareils hors ligne connus de la box.
+
+### Corrections
+- **Wi-Fi invité avec minuteur** : il était vu comme éteint (interrupteur HA,
+  Vue d'ensemble) alors qu'il était allumé. Avec un minuteur, la Livebox 6
+  remet `Enable` à faux ; c'est maintenant `Status` qui fait foi.
+
 ## 1.4.0 — 2026-11-22
 
 ### Nouveautés

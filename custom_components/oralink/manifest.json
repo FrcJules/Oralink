@@ -11,7 +11,8 @@
   "config_flow": true,
   "dependencies": [
     "http",
-    "ssdp"
+    "ssdp",
+    "webhook"
   ],
   "documentation": "https://github.com/FrcJules/Oralink",
   "iot_class": "local_polling",

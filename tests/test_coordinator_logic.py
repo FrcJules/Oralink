@@ -325,3 +325,68 @@ def test_dhcp_pool_disabled_or_failed(coordinator):
     coordinator.api, _ = _dhcp_api(None)  # réponse inattendue
     assert asyncio.run(coordinator.async_get_dhcp_pool()) == {}
     assert asyncio.run(coordinator.async_get_dhcp_leases()) == []
+
+
+def test_last_seen_recorded_for_active_devices_only(coordinator):
+    coordinator._record_last_seen({
+        "AA": {"Active": True, "Name": "PC", "IPAddress": "192.168.1.5"},
+        "BB": {"Active": False, "Name": "Off", "IPAddress": ""},
+    })
+    seen = coordinator.event_log_store.seen
+    assert set(seen) == {"AA"} and seen["AA"]["ip"] == "192.168.1.5"
+    assert coordinator.event_log_store._store.saved["seen"]["AA"]["name"] == "PC"
+
+
+def test_offline_devices_kept_when_request_fails(coordinator):
+    coordinator._offline_devices = {"AA": {"Key": "AA"}}
+
+    async def fail(*a):
+        return {}
+
+    coordinator._make_request = fail
+    coordinator.api = MagicMock()
+    asyncio.run(coordinator.async_refresh_offline_devices())
+    assert coordinator._offline_devices == {"AA": {"Key": "AA"}}
+    assert coordinator._offline_devices_at is None
+
+
+def test_upnp_events_after_baseline(coordinator):
+    rules = [[], [{"id": "upnp_x", "external_port": "5000", "protocol": "6",
+                   "destination_ip": "192.168.1.9", "name": "Jeu"}]]
+    calls = iter([[{"id": "webui_a", "external_port": "80", "protocol": "6",
+                    "destination_ip": "192.168.1.2"}]] + [r + [{"id": "webui_a",
+                    "external_port": "80", "protocol": "6", "destination_ip": "192.168.1.2"}]
+                   for r in rules[1:]])
+
+    async def fake():
+        return next(calls)
+
+    coordinator.async_get_port_forwarding = fake
+    coordinator.config_entry.entry_id = "entry1"
+    coordinator._all_devices = {"AA:BB:CC:DD:EE:01": {"Active": True, "Name": "Console",
+                                                      "IPAddress": "192.168.1.9"}}
+    asyncio.run(coordinator._async_port_forwarding_with_events())  # référence
+    coordinator.hass.bus.async_fire.reset_mock()
+    asyncio.run(coordinator._async_port_forwarding_with_events())
+    name, payload = coordinator.hass.bus.async_fire.call_args.args
+    assert name == "oralink_port_forward_event"
+    assert payload["event"] == "opened" and payload["name"] == "Console"
+    assert coordinator.event_log_store.events[0]["event"] == "port_opened"
+
+
+def test_action_token_single_use(coordinator):
+    store = coordinator.settings_store
+    now = datetime(2026, 11, 26, tzinfo=timezone.utc)
+    token = store.new_action_token("block", "AA", now)
+    assert store.consume_action_token(token, now)["mac"] == "AA"
+    assert store.consume_action_token(token, now) is None
+    old = store.new_action_token("block", "AA", now)
+    assert store.consume_action_token(old, now + timedelta(days=2)) is None
+
+
+def test_guest_on_uses_status_when_timer_active():
+    on = coord_mod.LiveboxDataUpdateCoordinator._guest_on
+    # Réponse réelle Livebox 6 avec minuteur : Enable=False mais réseau allumé.
+    assert on({"Enable": False, "Status": "Enabled", "ActivationTimeout": 1795684270})
+    assert not on({"Enable": False, "Status": "Disabled"})
+    assert on({"Enable": True})

@@ -22,6 +22,7 @@ from . import tv_decoder_api
 from .const import DOMAIN
 from .dhcp_utils import device_ip_source, manual_ip_in_pool, pool_summary
 from .history_utils import downsample, merge_rate_series, parse_float
+from .presence_utils import PresenceIndex
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -169,6 +170,16 @@ def async_setup_panel(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_guest_wifi_toggle)
     # DynDNS global enable/disable
     websocket_api.async_register_command(hass, ws_ddns_global_toggle)
+    # Notifications ntfy
+    websocket_api.async_register_command(hass, ws_get_notifications)
+    websocket_api.async_register_command(hass, ws_set_notifications)
+    websocket_api.async_register_command(hass, ws_test_notifications)
+    # Groupes d'appareils + pause Internet
+    websocket_api.async_register_command(hass, ws_get_groups)
+    websocket_api.async_register_command(hass, ws_set_group)
+    websocket_api.async_register_command(hass, ws_delete_group)
+    websocket_api.async_register_command(hass, ws_pause_group)
+    websocket_api.async_register_command(hass, ws_resume_group)
 
 
 def _get_coordinator(hass: HomeAssistant):
@@ -176,6 +187,26 @@ def _get_coordinator(hass: HomeAssistant):
         if hasattr(entry, "runtime_data"):
             return entry.runtime_data
     return None
+
+
+def _presence_index(coordinator) -> PresenceIndex:
+    """Index « appareil visé » (en ligne / hors ligne depuis / inconnu).
+
+    Pas de compteur d'utilisation par règle sur la Livebox : à défaut, on dit
+    si l'appareil de destination d'une règle existe encore (presence_utils).
+    """
+    data = coordinator.data or {}
+    return PresenceIndex(
+        data.get("all_devices") or data.get("devices", {}),
+        data.get("offline_devices"),
+        coordinator.event_log_store.seen,
+        dt_util.utcnow(),
+    )
+
+
+def _with_presence(rules: list[dict], index: PresenceIndex, key: str = "destination_ip") -> list[dict]:
+    """Copie des règles (sans toucher au cache) avec leur champ `presence`."""
+    return [{**r, "presence": index.by_ip(r.get(key))} for r in rules]
 
 
 _LIVE_IFACE_STATS_KEY = f"{DOMAIN}_live_iface_stats"
@@ -292,6 +323,8 @@ def ws_get_dhcp(hass, connection, msg):
         if d.get("Name")
     }
 
+    presence = _presence_index(coordinator)
+
     def _normalize_static(lease: dict) -> dict:
         name = lease.get("Name") or ""
         mac = (lease.get("Mac Address") or "").lower()
@@ -301,6 +334,8 @@ def ws_get_dhcp(hass, connection, msg):
             "name": name,
             "ip": lease.get("IP Address") or "",
             "mac": mac,
+            # Réservation pour un appareil disparu ? (hors ligne depuis N j)
+            "presence": presence.by_mac(mac),
         }
 
     def _normalize_dynamic(lease: dict) -> dict:
@@ -345,7 +380,9 @@ def ws_get_nat(hass, connection, msg):
     all_rules = coordinator.data.get("upnp", [])
     # Only manual (webui-created) rules for the NAT tab
     webui = [r for r in all_rules if str(r.get("id", "")).startswith("webui_")]
-    connection.send_result(msg["id"], webui if webui else all_rules)
+    connection.send_result(
+        msg["id"], _with_presence(webui if webui else all_rules, _presence_index(coordinator))
+    )
 
 
 # ── Pare-feu IPv6 : ouvertures de ports (Firewall:get/set/deletePinhole) ──────
@@ -364,6 +401,7 @@ async def ws_get_pinholes(hass, connection, msg):
         return
     raw = await _safe_post(coordinator, "Firewall", "getPinhole", {})
     rules = []
+    presence = _presence_index(coordinator)
     if isinstance(raw, dict):
         for rule_id, r in raw.items():
             if not isinstance(r, dict) or not r.get("DestinationPort"):
@@ -377,6 +415,7 @@ async def ws_get_pinholes(hass, connection, msg):
                 "port": r.get("DestinationPort", ""),
                 "destination_ip": r.get("DestinationIPAddress", ""),
                 "source_prefix": r.get("SourcePrefix", ""),
+                "presence": presence.by_ip(r.get("DestinationIPAddress")),
             })
     connection.send_result(msg["id"], {"supported": raw is not None, "rules": rules})
 
@@ -458,7 +497,9 @@ def ws_get_ptf(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    connection.send_result(msg["id"], coordinator.data.get("ptf", []))
+    connection.send_result(
+        msg["id"], _with_presence(coordinator.data.get("ptf", []), _presence_index(coordinator))
+    )
 
 
 @websocket_api.require_admin
@@ -1032,7 +1073,7 @@ async def ws_get_advanced(hass, connection, msg):
         },
         "upnp": {
             "enabled": data.get("upnp_igd", {}).get("Enable", False),
-            "rules":   upnp_rules,
+            "rules":   _with_presence(upnp_rules, _presence_index(coordinator)),
         },
         "ipv6": {
             "address": wan.get("IPv6Address", ""),
@@ -1069,6 +1110,7 @@ async def ws_get_dmz(hass, connection, msg):
         return
     raw = await _safe_post(coordinator, "Firewall", "getDMZ")
     entries = []
+    presence = _presence_index(coordinator)
     if isinstance(raw, dict):
         for dmz_id, entry in raw.items():
             if not isinstance(entry, dict):
@@ -1079,6 +1121,7 @@ async def ws_get_dmz(hass, connection, msg):
                 "source_prefix": entry.get("SourcePrefix", ""),
                 "enabled": bool(entry.get("Enable", True)),
                 "status": entry.get("Status", ""),
+                "presence": presence.by_ip(entry.get("DestinationIPAddress")),
             })
     connection.send_result(msg["id"], {"supported": raw is not None, "entries": entries})
 
@@ -1193,7 +1236,7 @@ def ws_get_upnp_rules(hass, connection, msg):
         return
     all_rules = coordinator.data.get("upnp", [])
     upnp = [r for r in all_rules if not str(r.get("id", "")).startswith("webui_")]
-    connection.send_result(msg["id"], upnp)
+    connection.send_result(msg["id"], _with_presence(upnp, _presence_index(coordinator)))
 
 
 # ── Advanced write commands ────────────────────────────────────────────────────
@@ -2502,6 +2545,8 @@ async def ws_get_wifi_detail(hass, connection, msg):
     )
     nmc_wifi = nmc_wifi if isinstance(nmc_wifi, dict) else {}
     nmc_guest = nmc_guest if isinstance(nmc_guest, dict) else {}
+    # Avec un minuteur, Enable repasse à False alors que le réseau est allumé.
+    guest_enabled = coordinator._guest_on(nmc_guest)
     try:
         guest_timer_hours = int(guest_timer) // 3600 if guest_timer is not None else None
     except (TypeError, ValueError):
@@ -2510,8 +2555,16 @@ async def ws_get_wifi_detail(hass, connection, msg):
         "radios": [r for r in radios_raw if r is not None],
         "vaps": [v for v in vaps_raw if v is not None],
         "wifi_enabled": nmc_wifi.get("Enable"),
-        "guest_enabled": nmc_guest.get("Status") == "Enabled" or nmc_guest.get("Enable") is True,
+        "guest_enabled": guest_enabled,
         "guest_timer_hours": guest_timer_hours,
+        # Heure d'extinction programmée par le minuteur de la box (ISO) ou None.
+        # (temps restant du minuteur : NMC.Guest.ValidTime est en heure locale
+        # suffixée « Z », donc faux).
+        "guest_until": (
+            (dt_util.utcnow() + timedelta(seconds=int(guest_timer))).isoformat()
+            if guest_enabled and isinstance(guest_timer, (int, float)) and guest_timer > 0
+            else None
+        ),
     })
 
 
@@ -3046,51 +3099,9 @@ async def ws_set_device_wan_access(hass, connection, msg):
     if coordinator is None:
         connection.send_error(msg["id"], "not_found", "Coordinator not found")
         return
-    mac = msg["mac"].upper()
     blocked = msg["blocked"]
     try:
-        # Check if schedule already exists
-        raw = await coordinator.api.devices._auth.post(
-            "Scheduler", "getSchedule", {"type": "ToD", "ID": mac}
-        )
-        has_schedule = isinstance(raw, dict) and bool(raw.get("status"))
-
-        if blocked:
-            if has_schedule:
-                await coordinator.api.devices._auth.post(
-                    "Scheduler", "overrideSchedule",
-                    {"type": "ToD", "ID": mac, "override": "Disable"}
-                )
-            else:
-                await coordinator.api.devices._auth.post(
-                    "Scheduler", "addSchedule",
-                    {"type": "ToD", "info": {
-                        "ID": mac,
-                        "base": "Weekly",
-                        "def": "Enable",
-                        "schedule": [],
-                        "enable": True,
-                        "override": "Disable",
-                    }}
-                )
-        else:
-            # Unblock: if schedule exists, override to Enable
-            if has_schedule:
-                await coordinator.api.devices._auth.post(
-                    "Scheduler", "overrideSchedule",
-                    {"type": "ToD", "ID": mac, "override": "Enable"}
-                )
-        # Relit tout de suite le planning de cet appareil : sans ça, la carte
-        # restait sur l'ancien état jusqu'au prochain cycle complet.
-        try:
-            info = await coordinator.async_get_device_schedule(mac)
-            if isinstance(coordinator.data, dict):
-                cache = coordinator.data.setdefault("devices_wan_access", {})
-                key = next((k for k in cache if k.upper() == mac), mac)
-                cache[key] = info
-        except Exception:  # noqa: BLE001 — le refresh complet prendra le relais
-            pass
-        await coordinator.async_request_refresh()
+        await coordinator.async_set_wan_blocked(msg["mac"], blocked)
         connection.send_result(msg["id"], {"status": "ok", "blocked": blocked})
     except Exception as err:
         connection.send_error(msg["id"], "wan_access_set_failed", str(err))
@@ -3402,6 +3413,9 @@ async def ws_guest_wifi_toggle(hass, connection, msg):
                 coordinator, "NMC.WlanTimer", "disableActivationTimer",
                 {"InterfaceName": "guest"}
             )
+        # Relit l'état (et l'heure d'extinction) : sert à reconnaître une
+        # extinction par le minuteur pour l'alerte « Wi-Fi invité éteint ».
+        await coordinator.async_is_guest_wifi()
         connection.send_result(msg["id"], {"status": "ok", "enabled": enabled})
     except Exception as err:
         connection.send_error(msg["id"], "guest_wifi_toggle_failed", str(err))
@@ -3429,3 +3443,185 @@ async def ws_ddns_global_toggle(hass, connection, msg):
         connection.send_result(msg["id"], {"status": "ok", "enabled": enabled})
     except Exception as err:
         connection.send_error(msg["id"], "ddns_global_toggle_failed", str(err))
+
+
+# ── Notifications ntfy (alerts.py / settings_store.py) ───────────────────────
+
+def _notifications_payload(coordinator) -> dict:
+    ntfy = coordinator.settings_store.ntfy
+    alerts = coordinator.alerts
+    return {
+        "enabled": bool(ntfy.get("enabled")),
+        "server": ntfy.get("server", ""),
+        "topic": ntfy.get("topic", ""),
+        # Le jeton n'est jamais renvoyé au navigateur : seulement s'il existe.
+        "token_set": bool(ntfy.get("token")),
+        "alerts": dict(ntfy.get("alerts", {})),
+        "actions": bool(ntfy.get("actions")),
+        # Boutons « Couper Internet » : il faut une URL externe pour HA.
+        "external_url": bool(alerts and alerts._base_url(external_only=True)),
+    }
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "livebox/notifications"})
+@callback
+def ws_get_notifications(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    connection.send_result(msg["id"], _notifications_payload(coordinator))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/notifications/set",
+    vol.Required("enabled"): bool,
+    vol.Required("server"): vol.All(str, vol.Length(max=200)),
+    vol.Required("topic"): vol.All(str, vol.Match(r"^[A-Za-z0-9_-]{0,64}$")),
+    vol.Optional("token"): vol.All(str, vol.Length(max=200)),
+    vol.Optional("clear_token", default=False): bool,
+    vol.Required("alerts"): {str: bool},
+    vol.Required("actions"): bool,
+})
+@callback
+def ws_set_notifications(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    server = msg["server"].strip().rstrip("/")
+    if msg["enabled"] and not server.startswith(("http://", "https://")):
+        connection.send_error(msg["id"], "invalid_server", "Adresse du serveur ntfy invalide")
+        return
+    if msg["enabled"] and not msg["topic"]:
+        connection.send_error(msg["id"], "invalid_topic", "Topic ntfy manquant")
+        return
+    store = coordinator.settings_store
+    ntfy = store.ntfy
+    ntfy.update(enabled=msg["enabled"], server=server, topic=msg["topic"], actions=msg["actions"])
+    if msg["clear_token"]:
+        ntfy["token"] = ""
+    elif msg.get("token"):
+        ntfy["token"] = msg["token"].strip()
+    ntfy["alerts"] = {k: bool(msg["alerts"].get(k, v)) for k, v in ntfy["alerts"].items()}
+    store.async_schedule_save()
+    connection.send_result(msg["id"], _notifications_payload(coordinator))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "livebox/notifications/test"})
+@websocket_api.async_response
+async def ws_test_notifications(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None or coordinator.alerts is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        await coordinator.alerts.async_send(
+            "Oralink", "Notification de test : les alertes de la Livebox arriveront ici.",
+            tags=["white_check_mark"],
+        )
+        connection.send_result(msg["id"], {"status": "sent"})
+    except Exception as err:  # noqa: BLE001 — NtfyError ou réseau
+        connection.send_error(msg["id"], "ntfy_failed", str(err))
+
+
+# ── Groupes d'appareils et pause Internet (groups.py) ────────────────────────
+
+@callback
+@websocket_api.websocket_command({vol.Required("type"): "livebox/groups"})
+def ws_get_groups(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None or coordinator.groups is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    result = []
+    for group_id, group in coordinator.settings_store.groups.items():
+        members = []
+        for mac in group.get("macs", []):
+            device = coordinator.device_info_by_mac(mac)
+            members.append({
+                "mac": mac,
+                "name": device.get("Name") or mac,
+                "active": bool(device.get("Active")),
+            })
+        pause = coordinator.groups.pause_info(group_id)
+        result.append({
+            "group_id": group_id,
+            "name": group.get("name", ""),
+            "members": members,
+            "paused": pause is not None,
+            "until": (pause or {}).get("until"),
+            "paused_count": len((pause or {}).get("macs", [])),
+        })
+    result.sort(key=lambda g: g["name"].lower())
+    connection.send_result(msg["id"], result)
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/groups/set",
+    vol.Optional("group_id"): str,
+    vol.Required("name"): vol.All(str, vol.Length(min=1, max=40)),
+    vol.Required("macs"): [vol.Match(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")],
+})
+@callback
+def ws_set_group(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None or coordinator.groups is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    group_id = coordinator.groups.save_group(msg.get("group_id"), msg["name"], msg["macs"])
+    connection.send_result(msg["id"], {"group_id": group_id})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/groups/delete",
+    vol.Required("group_id"): str,
+})
+@websocket_api.async_response
+async def ws_delete_group(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None or coordinator.groups is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    await coordinator.groups.async_delete_group(msg["group_id"])
+    connection.send_result(msg["id"], {"status": "deleted"})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/groups/pause",
+    vol.Required("group_id"): str,
+    # 0 = jusqu'à reprise manuelle ; au plus 7 jours.
+    vol.Required("minutes"): vol.All(int, vol.Range(min=0, max=7 * 24 * 60)),
+})
+@websocket_api.async_response
+async def ws_pause_group(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None or coordinator.groups is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    try:
+        result = await coordinator.groups.async_pause(msg["group_id"], msg["minutes"] or None)
+        connection.send_result(msg["id"], result)
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "pause_failed", str(err))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({
+    vol.Required("type"): "livebox/groups/resume",
+    vol.Required("group_id"): str,
+})
+@websocket_api.async_response
+async def ws_resume_group(hass, connection, msg):
+    coordinator = _get_coordinator(hass)
+    if coordinator is None or coordinator.groups is None:
+        connection.send_error(msg["id"], "not_found", "Coordinator not found")
+        return
+    errors = await coordinator.groups.async_resume(msg["group_id"])
+    connection.send_result(msg["id"], {"status": "resumed", "errors": errors})

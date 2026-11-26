@@ -141,11 +141,9 @@ manquantes côté panel Oralink, par ordre de priorité suggéré :
    `eventmanager`/`get_events` de la Livebox (notifications par
    souscription/long-polling — `open_channel`/`subscribe`, cf.
    `LmEventsTab.LmEventsApi`), peu adapté au modèle `DataUpdateCoordinator`
-   basé sur du polling. **Notifications email** : volontairement non
-   implémentées dans l'intégration — recommandé de passer par une
-   automatisation Home Assistant (déclencheur sur les `device_tracker`/
-   capteurs de présence existants + service `notify.*`), plus idiomatique
-   qu'un client SMTP custom dans le composant.
+   basé sur du polling. **Notifications email** : non implémentées ;
+   les notifications push passent par **ntfy** directement depuis
+   l'intégration (voir « Notifications ntfy » plus bas).
 2. ✅ **Graphiques de trafic** (`LmGraphTab`) — onglet **"Graphiques"** avec
    `recharts`, alimenté par un historique en mémoire (`deque` `_traffic_history`,
    ~12h à raison d'un point par minute, `coordinator.traffic_history` /
@@ -311,6 +309,49 @@ DHCP ou changer la plage : `livebox/dhcp/params/set` (NMC `DHCPEnable`/
 `DHCPStartIPAddress`…) existe côté backend mais n'a jamais été vérifié sur la
 box — à tester avec `scripts/live-tests/` avant de le rebrancher (une erreur
 coupe le LAN).
+
+**Appareil visé par une règle (2026-11-26)** : la Livebox n'a **aucun
+compteur d'utilisation** par règle (`getPortForwarding`/`getCustomRule` :
+config seule ; `Conntrack:get` → « Permission denied » même en admin) —
+impossible de dire qu'un port « n'est plus appelé ». À la place,
+`presence_utils.PresenceIndex` résout l'IP (v4/v6) ou la MAC de destination :
+`online` / `moved` (dernier occupant en ligne avec une autre adresse) /
+`offline` (+ `offline_days`) / `unknown`. Sources : `all_devices`,
+`coordinator.data["offline_devices"]` (inactifs de la box, relus toutes les
+15 min) et `event_log_store.seen` (dernière présence + IP par MAC, écrit au
+plus toutes les 10 min) — indispensable car la box vide `IPAddress` à la
+déconnexion. Dates box : max(`LastConnection`, `LastChanged`) — sous-estime
+l'absence plutôt que de la surestimer. Champ `presence` ajouté à
+`livebox/nat`, `upnp/rules`, `advanced` (UPnP), `ptf`, `ipv6/pinholes`, `dmz`
+et `dhcp` (réservations, par MAC) ; panel : `components/presence.jsx`
+(`PresenceBadge`, `StaleNotice` > 30 j) et `lib/presence.js`.
+
+**Notifications ntfy, pause par groupe, UPnP (2026-11-26)** — revient sur
+la position « pas de notification dans l'intégration » (demande explicite) :
+- `settings_store.py` (`.storage/oralink_settings_<entry>`) : réglages ntfy
+  (jeton jamais renvoyé au panel, seulement `token_set`), `webhook_id`,
+  jetons d'action à usage unique (24 h), groupes, pauses, `upnp_macs`.
+- `ntfy.py` : publication JSON sur la racine du serveur (`topic` dans le
+  corps). `alerts.py` : `OralinkAlerts` (alertes `new_device`, `upnp`,
+  `upnp_all`, `pause_end`, `guest_off`) + webhook HA (`webhook` ajouté aux
+  `dependencies` du manifest) pour les boutons « Couper Internet »/
+  « Rétablir » — nécessite une URL externe HA (`get_url`).
+- `coordinator.async_set_wan_blocked/async_is_wan_blocked` : seul chemin pour
+  couper Internet (panel, webhook, groupes). `groups.py` : pause =
+  `async_track_point_in_utc_time`, restaurée au démarrage ; ne rétablit que
+  les MAC que la pause a coupées.
+- UPnP : `upnp_utils.diff_upnp` entre deux cycles (référence au 1er cycle,
+  liste vide ignorée = échec de lecture) → `oralink_port_forward_event` +
+  journal (`event: port_opened`).
+- ⚠ **Wi-Fi invité + minuteur (vérifié Livebox 6)** : `NMC.Guest.Enable`
+  passe à False alors que le réseau est allumé → utiliser `Status`
+  (`_guest_on`). `ValidTime` est l'heure **locale suffixée Z** : l'heure
+  d'extinction se calcule avec `NMC.WlanTimer:getActivationTimer` (secondes
+  restantes). `setActivationTimer` prend des **heures**.
+- Testé en réel : notification de test, webhook externe (faux jeton → 403),
+  pause d'1 min sur un appareil hors ligne (coupé puis rétabli, notification
+  de fin reçue), Wi-Fi invité 1 h (activé, heure juste, coupé). Non testé en
+  réel : le clic sur « Couper Internet » (pas de nouvel appareil sous la main).
 
 **Nettoyage panel-src (2026-07-12)** : 6 fichiers d'onglets
 (`dhcp-tab.jsx`, `nat-tab.jsx`, `network-tab.jsx`, `system-tab.jsx`,
